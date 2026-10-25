@@ -7,7 +7,12 @@ itself a Windows fork of
 Both are licensed under the GNU General Public License v3.0, and so is this
 modified version. See `LICENSE`.
 
-Modified by hiyomi. Base revision: `6dfcb65` (2026-09-14).
+Modified by Hiyomi ([@Qwerty0525](https://github.com/Qwerty0525)).
+Base revision: `6dfcb65` (2026-09-14).
+
+The complete corresponding source for any binary built from these changes
+is the `slimevr-hmd-anchored` branch of
+<https://github.com/Qwerty0525/FlugelKranzWin>.
 
 ## 2026-09-14 — SlimeVR and other HMD-anchored solvers
 
