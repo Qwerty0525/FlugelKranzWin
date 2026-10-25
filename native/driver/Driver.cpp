@@ -64,28 +64,45 @@ using RawPoses=void(*)(void*,float,vr::TrackedDevicePose_t*,uint32_t);
 RawPoses rawOriginal=nullptr;
 void* rawTarget=nullptr;
 char physicalPoseDrivers[256]="driver_slimevr.dll";
-std::array<flight::Pose,64> lastApplied{}; // protected by gate
-std::mutex callerGate;
-struct CallerDecision {HMODULE module=nullptr;bool physical=false;};
-std::array<CallerDecision,16> callerDecisions{}; // protected by callerGate
+// appliedGate is held only for one assignment by a pose update and one array copy
+// by the readback hook. The readback must not take `gate`: SlimeVR polls raw poses
+// every ~2 ms, pose updates hold `gate` across IPC mutex waits, and the HMD's own
+// updates then queue behind them. Measured on Quest 2 + VD + SlimeVR, that left the
+// render correction using HMD samples 47 ms or older in 72% of flying frames
+// (0.3% before the hook), which is visible as judder in the headset.
+std::mutex appliedGate;
+std::array<flight::Pose,64> lastApplied{}; // protected by appliedGate
+// Call sites are classified once each and cached lock-free, so the hot path takes
+// neither a mutex nor the loader lock.
+std::array<std::atomic<void*>,8> physicalCallSites{};
+std::array<std::atomic<void*>,8> flownCallSites{};
+std::mutex callSiteGate; // only while classifying a call site seen for the first time
 
 bool servesPhysicalPoses(void* returnAddress) {
-    HMODULE module=nullptr;
-    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        static_cast<LPCWSTR>(returnAddress),&module)) return false;
-    std::lock_guard<std::mutex> lock(callerGate);
-    for(const auto& decision:callerDecisions) if(decision.module==module) return decision.physical;
-    wchar_t path[MAX_PATH]{};
-    const DWORD length=GetModuleFileNameW(module,path,MAX_PATH);
-    const wchar_t* file=path;
-    for(DWORD i=0;i<length;i++) if(path[i]==L'\\' || path[i]==L'/') file=path+i+1;
+    for(const auto& site:physicalCallSites) if(site.load(std::memory_order_relaxed)==returnAddress) return true;
+    for(const auto& site:flownCallSites) if(site.load(std::memory_order_relaxed)==returnAddress) return false;
+    std::lock_guard<std::mutex> lock(callSiteGate);
     char name[MAX_PATH]{};
-    WideCharToMultiByte(CP_UTF8,0,file,-1,name,sizeof(name),nullptr,nullptr);
-    const bool physical=length && flight::listContains(physicalPoseDrivers,name);
-    for(auto& decision:callerDecisions) if(!decision.module) {decision={module,physical};break;}
-    char message[MAX_PATH+96];
-    std::snprintf(message,sizeof(message),"FlugelKranz: raw poses for %s: %s",name,physical?"physical (flight removed)":"flown");
-    vr::VRDriverLog()->Log(message);
+    HMODULE module=nullptr;
+    if(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        static_cast<LPCWSTR>(returnAddress),&module)) {
+        wchar_t path[MAX_PATH]{};
+        const DWORD length=GetModuleFileNameW(module,path,MAX_PATH);
+        const wchar_t* file=path;
+        for(DWORD i=0;i<length;i++) if(path[i]==L'\\' || path[i]==L'/') file=path+i+1;
+        WideCharToMultiByte(CP_UTF8,0,file,-1,name,sizeof(name),nullptr,nullptr);
+    }
+    const bool physical=name[0] && flight::listContains(physicalPoseDrivers,name);
+    for(auto& site:physical?physicalCallSites:flownCallSites) {
+        if(site.load()==returnAddress) break;
+        void* expected=nullptr;
+        if(site.compare_exchange_strong(expected,returnAddress)) {
+            char message[MAX_PATH+96];
+            std::snprintf(message,sizeof(message),"FlugelKranz: raw poses for %s: %s",name[0]?name:"(unknown module)",physical?"physical (flight removed)":"flown");
+            vr::VRDriverLog()->Log(message);
+            break;
+        }
+    }
     return physical;
 }
 
@@ -93,10 +110,11 @@ void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_
     CallbackScope scope;
     const auto caller=_ReturnAddress();
     rawOriginal(host,prediction,poses,count);
-    if(!poses || !servesPhysicalPoses(caller)) return;
-    std::lock_guard<std::mutex> lock(gate);
-    for(uint32_t device=0;device<count && device<lastApplied.size();device++)
-        flight::removeTransform(poses[device],lastApplied[device]);
+    if(!poses || !count || !servesPhysicalPoses(caller)) return;
+    std::array<flight::Pose,64> applied;
+    {std::lock_guard<std::mutex> lock(appliedGate);applied=lastApplied;}
+    for(uint32_t device=0;device<count && device<applied.size();device++)
+        flight::removeTransform(poses[device],applied[device]);
 }
 bool physicalHeadValid=false; // protected by gate
 
@@ -288,7 +306,7 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             transform=physicalHeadValid?flight::aboutPivot(command,flownHead):flight::Pose{};
         }
         output=flight::apply(input,transform);
-        if(device<lastApplied.size()) lastApplied[device]=transform;
+        if(device<lastApplied.size()) {std::lock_guard<std::mutex> applied(appliedGate);lastApplied[device]=transform;}
         if(device==0 && correctFramePose) {
             std::lock_guard<std::mutex> historyLock(historyGate);
             frameHistory.add(received,output,command,&input);
@@ -401,8 +419,9 @@ public:
         command={};lastHeartbeat=0;
         physicalHeadValid=false;
         for(auto& known:anchoredDevices) known.store(0);
-        lastApplied.fill(flight::Pose{});
-        {std::lock_guard<std::mutex> callers(callerGate);callerDecisions.fill(CallerDecision{});}
+        {std::lock_guard<std::mutex> applied(appliedGate);lastApplied.fill(flight::Pose{});}
+        for(auto& site:physicalCallSites) site.store(nullptr);
+        for(auto& site:flownCallSites) site.store(nullptr);
         propertiesReady=false;
         frameHistory.clear();
         VR_CLEANUP_SERVER_DRIVER_CONTEXT();
