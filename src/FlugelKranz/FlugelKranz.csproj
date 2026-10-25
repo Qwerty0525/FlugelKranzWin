@@ -13,6 +13,8 @@
     <None Include="../../WINDOWS.md" Link="WINDOWS.md" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../MODIFICATIONS.md" Link="MODIFICATIONS.md" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../THIRD-PARTY-NOTICES-dotnet.txt" Link="THIRD-PARTY-NOTICES-dotnet.txt" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../THIRD-PARTY-NOTICES-SkiaSharp.txt" Link="THIRD-PARTY-NOTICES-SkiaSharp.txt" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="..\FlugelKranz.OpenXR\FlugelKranz.OpenXR.csproj" />
     <ProjectReference Include="..\FlugelKranz.OpenVR\FlugelKranz.OpenVR.csproj" />
   </ItemGroup>

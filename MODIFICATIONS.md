@@ -12,21 +12,24 @@ Base revision: `6dfcb65` (2026-09-14).
 
 The complete corresponding source for any binary built from these changes
 is the `slimevr-hmd-anchored` branch of
-<https://github.com/Qwerty0525/FlugelKranzWin>.
+<https://github.com/Qwerty0525/FlugelKranzWin>. Each release is also tagged
+at the exact commit it was built from (for example `slimevr-20261025`), and
+those tags are kept.
 
 ## 2026-09-14 — SlimeVR and other HMD-anchored solvers
 
 Affected files: `native/driver/Driver.cpp`, `native/driver/Transform.h`,
 `native/driver/FrameHistory.h`, `native/driver/TransformTests.cpp`,
-`native/driver/resources/settings/default.vrsettings`.
+`native/driver/resources/settings/default.vrsettings`,
+`native/driver/README.md`.
 
 SlimeVR's SteamVR driver reads HMD and controller poses back through
 `IVRServerDriverHost::GetRawTrackedDevicePoses` and builds its skeleton around
 them. Those poses already carry the flight transform, so the skeleton was
 assembled around the flown head and the flight then landed on SlimeVR's
 trackers a second time. Measured on Quest 2 + Touch / Virtual Desktop /
-SlimeVR with the flight held at 33.6 m of translation, SlimeVR's six trackers
-sat 0.4–1.0 m from the flown head and about 33 m from the physical head, while
+SlimeVR with the flight held at 33.6 m of translation, the poses SlimeVR's six
+trackers submitted sat 0.4–1.0 m from the flown head and about 33 m from the physical head, while
 Virtual Desktop's arm trackers and the controllers were the reverse.
 
 The driver now hooks `GetRawTrackedDevicePoses` and removes the transform last
@@ -78,3 +81,19 @@ either.
 ### Testing
 
 All three native test suites pass. Not yet confirmed on hardware.
+
+## 2026-10-25 — Redistribution notices
+
+Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
+and the new files `MODIFICATIONS.md`, `THIRD-PARTY-NOTICES-dotnet.txt` and
+`THIRD-PARTY-NOTICES-SkiaSharp.txt`.
+
+The project now copies this file and the third-party notices into the publish
+output, so the Windows archive carries them. `THIRD-PARTY-NOTICES.txt` lists
+the bundled components and their licences, and now points to two notice files
+reproduced verbatim from the NuGet packages: the .NET runtime pack's (Brotli,
+zlib-ng, Unicode data and others compiled into the runtime) and
+SkiaSharp.NativeAssets.Win32's (Skia, HarfBuzz, libjpeg-turbo, libwebp, the
+Adobe DNG SDK, piex and others in `libSkiaSharp.dll` / `libHarfBuzzSharp.dll`).
+It also records that `Microsoft.DiaSymReader.Native.amd64.dll` is under the
+Microsoft .NET Library License rather than MIT, and adds Wuffs.
