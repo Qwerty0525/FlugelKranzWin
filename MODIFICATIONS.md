@@ -57,3 +57,24 @@ SlimeVR full-body tracking. Flight with the Virtual Desktop virtual elbow
 trackers unassigned in SlimeVR behaved correctly over several sessions.
 Rotation-heavy flight with those virtual trackers reassigned has not been
 re-tested since the readback hook replaced the rotation-only approach.
+
+## 2026-10-25 — Keep the raw-pose readback off the pose-update lock
+
+Affected file: `native/driver/Driver.cpp`.
+
+The readback hook above took the same mutex that pose updates hold across
+their IPC mutex waits. SlimeVR polls `GetRawTrackedDevicePoses` about every
+2 ms, so the HMD's own pose updates queued behind it and the headset view
+juddered while moving with FlugelKranz running. Measured from the driver's
+FrameAudit log on the same hardware, the render correction used HMD samples
+47 ms or older in 72% of flying frames, against 0.3% before the hook existed.
+
+The transforms last applied to each device now have their own mutex, held only
+for one assignment by a pose update or one array copy by the readback, and the
+readback processes its copy unlocked. Each call site is classified once and
+cached in lock-free atomics, so the readback no longer takes the loader lock
+either.
+
+### Testing
+
+All three native test suites pass. Not yet confirmed on hardware.
