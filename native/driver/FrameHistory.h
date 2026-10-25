@@ -34,6 +34,18 @@ inline vr::HmdMatrix34_t removeTransform(const vr::HmdMatrix34_t& rendered,Pose 
     }
     return result;
 }
+// Undo the flight on a pose read back from vrserver, for solvers that must see the body.
+inline void removeTransform(vr::TrackedDevicePose_t& pose,Pose transform) {
+    if(transform.x==0 && transform.y==0 && transform.z==0 && std::abs(transform.w)==1
+        && transform.px==0 && transform.py==0 && transform.pz==0) return;
+    pose.mDeviceToAbsoluteTracking=removeTransform(pose.mDeviceToAbsoluteTracking,transform);
+    const vr::HmdQuaternion_t inverse{transform.w,-transform.x,-transform.y,-transform.z};
+    for(auto* velocity:{&pose.vVelocity,&pose.vAngularVelocity}) {
+        const double in[3]{velocity->v[0],velocity->v[1],velocity->v[2]};
+        double out[3];rotate(inverse,in,out);
+        for(int i=0;i<3;i++) velocity->v[i]=static_cast<float>(out[i]);
+    }
+}
 struct FrameMatch {bool found=false;Pose transform;double error=1;bool held=false;};
 struct PhysicalFrame {bool found=false;Pose pose;double predictionSeconds=0;bool interpolated=false;};
 class FrameHistory {

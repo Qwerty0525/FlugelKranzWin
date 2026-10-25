@@ -8,6 +8,8 @@
 #include <new>
 #include <cstdio>
 #include <chrono>
+#include <array>
+#include <intrin.h>
 #include "Transform.h"
 #include "FrameHistory.h"
 
@@ -48,6 +50,75 @@ double frameTimeMs() {
     return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 bool observerStopping=false; // protected by observerGate
+// SlimeVR-style solvers build their skeleton around the HMD pose they read back
+// from SteamVR, so their tracker poses already contain the flight translation.
+// 0 = not classified yet, 1 = own tracking, 2 = anchored to the flown HMD.
+std::array<std::atomic<uint8_t>,64> anchoredDevices{};
+char hmdAnchoredSystems[256]="";
+std::atomic<bool> propertiesReady{false};
+double physicalHead[3]{}; // protected by gate
+// Solvers that read raw poses back from inside vrserver (SlimeVR reads the HMD this
+// way) must see the physical body. Otherwise they rebuild the skeleton around the
+// flown HMD and the flight lands on their trackers a second time.
+using RawPoses=void(*)(void*,float,vr::TrackedDevicePose_t*,uint32_t);
+RawPoses rawOriginal=nullptr;
+void* rawTarget=nullptr;
+char physicalPoseDrivers[256]="driver_slimevr.dll";
+std::array<flight::Pose,64> lastApplied{}; // protected by gate
+std::mutex callerGate;
+struct CallerDecision {HMODULE module=nullptr;bool physical=false;};
+std::array<CallerDecision,16> callerDecisions{}; // protected by callerGate
+
+bool servesPhysicalPoses(void* returnAddress) {
+    HMODULE module=nullptr;
+    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        static_cast<LPCWSTR>(returnAddress),&module)) return false;
+    std::lock_guard<std::mutex> lock(callerGate);
+    for(const auto& decision:callerDecisions) if(decision.module==module) return decision.physical;
+    wchar_t path[MAX_PATH]{};
+    const DWORD length=GetModuleFileNameW(module,path,MAX_PATH);
+    const wchar_t* file=path;
+    for(DWORD i=0;i<length;i++) if(path[i]==L'\\' || path[i]==L'/') file=path+i+1;
+    char name[MAX_PATH]{};
+    WideCharToMultiByte(CP_UTF8,0,file,-1,name,sizeof(name),nullptr,nullptr);
+    const bool physical=length && flight::listContains(physicalPoseDrivers,name);
+    for(auto& decision:callerDecisions) if(!decision.module) {decision={module,physical};break;}
+    char message[MAX_PATH+96];
+    std::snprintf(message,sizeof(message),"FlugelKranz: raw poses for %s: %s",name,physical?"physical (flight removed)":"flown");
+    vr::VRDriverLog()->Log(message);
+    return physical;
+}
+
+void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_t count) {
+    CallbackScope scope;
+    const auto caller=_ReturnAddress();
+    rawOriginal(host,prediction,poses,count);
+    if(!poses || !servesPhysicalPoses(caller)) return;
+    std::lock_guard<std::mutex> lock(gate);
+    for(uint32_t device=0;device<count && device<lastApplied.size();device++)
+        flight::removeTransform(poses[device],lastApplied[device]);
+}
+bool physicalHeadValid=false; // protected by gate
+
+uint8_t classify(uint32_t device) {
+    if(device>=anchoredDevices.size()) return 1;
+    const uint8_t known=anchoredDevices[device].load();
+    if(known) return known;
+    if(!propertiesReady.load()) return 1;
+    vr::ETrackedPropertyError error=vr::TrackedProp_Success;
+    auto& properties=*vr::VRProperties();
+    auto system=properties.GetStringProperty(properties.TrackedDeviceToPropertyContainer(device),vr::Prop_TrackingSystemName_String,&error);
+    // A driver may submit a pose before its properties are readable; ask again next time.
+    if(error==vr::TrackedProp_NotYetAvailable || error==vr::TrackedProp_InvalidDevice) return 1;
+    const uint8_t result=error==vr::TrackedProp_Success && flight::listContains(hmdAnchoredSystems,system.c_str())?2:1;
+    anchoredDevices[device].store(result);
+    if(result==2) {
+        char message[256];
+        std::snprintf(message,sizeof(message),"FlugelKranz: device %u (%s) follows the flown HMD; applying rotation about it only",device,system.c_str());
+        vr::VRDriverLog()->Log(message);
+    }
+    return result;
+}
 
 void observedSubmit(void* self,const Layer(&eyes)[2]) {
     CallbackScope scope;
@@ -192,6 +263,7 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
     auto received=frameTimeMs();
     // Never inspect an unknown ABI-sized pose.
     if(size!=sizeof(vr::DriverPose_t)) { originals[index](host,device,input,size); return; }
+    const bool anchored=device!=0 && classify(device)==2;
     vr::DriverPose_t output;
     {
         std::lock_guard<std::mutex> lock(gate);
@@ -203,7 +275,20 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             sample.timestamp=GetTickCount64();
             ReleaseMutex(ipcMutex);
         }
-        output=flight::apply(input,command);
+        if(device==0 && input.poseIsValid && input.deviceIsConnected) {
+            auto head=flight::physical(input);
+            if(flight::valid(head)) {physicalHead[0]=head.px;physicalHead[1]=head.py;physicalHead[2]=head.pz;physicalHeadValid=true;}
+        }
+        auto transform=command;
+        if(anchored) {
+            // The solver already moved these trackers with the flown HMD it read back.
+            // Rotate them about where that HMD is now instead of moving them again.
+            double flownHead[3];
+            flight::transformPoint(command,physicalHead,flownHead);
+            transform=physicalHeadValid?flight::aboutPivot(command,flownHead):flight::Pose{};
+        }
+        output=flight::apply(input,transform);
+        if(device<lastApplied.size()) lastApplied[device]=transform;
         if(device==0 && correctFramePose) {
             std::lock_guard<std::mutex> historyLock(historyGate);
             frameHistory.add(received,output,command,&input);
@@ -234,6 +319,22 @@ public:
         observeFrames=vr::VRSettings()->GetBool("driver_flugelkranz","observeFrames");
         correctFramePose=vr::VRSettings()->GetBool("driver_flugelkranz","correctFramePose");
         timeBasedFramePose=vr::VRSettings()->GetBool("driver_flugelkranz","timeBasedFramePose");
+        {
+            char configured[sizeof(hmdAnchoredSystems)]{};
+            vr::EVRSettingsError settingsError=vr::VRSettingsError_None;
+            vr::VRSettings()->GetString("driver_flugelkranz","hmdAnchoredTrackingSystems",configured,sizeof(configured),&settingsError);
+            if(settingsError==vr::VRSettingsError_None) std::memcpy(hmdAnchoredSystems,configured,sizeof(configured));
+            char message[320];
+            std::snprintf(message,sizeof(message),"FlugelKranz: HMD-anchored tracking systems: '%s'",hmdAnchoredSystems);
+            vr::VRDriverLog()->Log(message);
+            char drivers[sizeof(physicalPoseDrivers)]{};
+            settingsError=vr::VRSettingsError_None;
+            vr::VRSettings()->GetString("driver_flugelkranz","physicalPoseDrivers",drivers,sizeof(drivers),&settingsError);
+            if(settingsError==vr::VRSettingsError_None) std::memcpy(physicalPoseDrivers,drivers,sizeof(drivers));
+            std::snprintf(message,sizeof(message),"FlugelKranz: physical raw poses for drivers: '%s'",physicalPoseDrivers);
+            vr::VRDriverLog()->Log(message);
+            propertiesReady=true;
+        }
         const char* versions[]={"IVRServerDriverHost_006","IVRServerDriverHost_005"};
         void* detours[]={reinterpret_cast<void*>(updated0),reinterpret_cast<void*>(updated1)};
         void* addedDetours[]={reinterpret_cast<void*>(added0),reinterpret_cast<void*>(added1)};
@@ -258,6 +359,17 @@ public:
             installed++;
         }
         if(!installed) {Cleanup();return vr::VRInitError_Driver_Failed;}
+        if(physicalPoseDrivers[0]) {
+            vr::EVRInitError hostError=vr::VRInitError_None;
+            auto host=context->GetGenericInterface("IVRServerDriverHost_006",&hostError);
+            auto target=host && hostError==vr::VRInitError_None?(*reinterpret_cast<void***>(host))[6]:nullptr;
+            if(target && MH_CreateHook(target,reinterpret_cast<void*>(rawPoses),reinterpret_cast<void**>(&rawOriginal))==MH_OK) {
+                rawTarget=target;
+                vr::VRDriverLog()->Log(MH_EnableHook(target)==MH_OK
+                    ?"FlugelKranz: raw pose readback hook installed"
+                    :"FlugelKranz: raw pose readback hook could not be enabled");
+            } else vr::VRDriverLog()->Log("FlugelKranz: raw pose readback hook failed; HMD-based solvers will see the flown HMD");
+        }
         vr::VRDriverLog()->Log("FlugelKranz driver ready: raw snapshots + XYZ body-pose transforms v2");
         return vr::VRInitError_None;
     }
@@ -272,6 +384,7 @@ public:
         if(componentTarget) MH_DisableHook(componentTarget);
         if(submitTarget) MH_DisableHook(submitTarget);
         for(auto target:targets) if(target) MH_DisableHook(target);
+        if(rawTarget) MH_DisableHook(rawTarget);
         // A callback may still be executing its original function/trampoline.
         // Stop new detours and let existing callbacks return before freeing it.
         while(inFlight.load()!=0) Sleep(1);
@@ -279,12 +392,18 @@ public:
         if(componentTarget) {MH_RemoveHook(componentTarget);componentTarget=nullptr;}
         if(submitTarget) {MH_RemoveHook(submitTarget);submitTarget=nullptr;}
         for(auto& target:targets) if(target) {MH_RemoveHook(target);target=nullptr;}
+        if(rawTarget) {MH_RemoveHook(rawTarget);rawTarget=nullptr;}
         std::lock_guard<std::mutex> lock(gate);
         if(state) {UnmapViewOfFile(state);state=nullptr;}
         if(mapping) {CloseHandle(mapping);mapping=nullptr;}
         if(ipcMutex) {CloseHandle(ipcMutex);ipcMutex=nullptr;}
         if(minHookInitialized) {MH_Uninitialize();minHookInitialized=false;}
         command={};lastHeartbeat=0;
+        physicalHeadValid=false;
+        for(auto& known:anchoredDevices) known.store(0);
+        lastApplied.fill(flight::Pose{});
+        {std::lock_guard<std::mutex> callers(callerGate);callerDecisions.fill(CallerDecision{});}
+        propertiesReady=false;
         frameHistory.clear();
         VR_CLEANUP_SERVER_DRIVER_CONTEXT();
     }
