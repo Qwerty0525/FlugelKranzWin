@@ -82,6 +82,25 @@ either.
 
 All three native test suites pass. Not yet confirmed on hardware.
 
+## 2026-10-28 — rebocap in the default readback list
+
+Affected files: `native/driver/Driver.cpp`,
+`native/driver/resources/settings/default.vrsettings`,
+`native/driver/README.md`.
+
+`physicalPoseDrivers` now defaults to `driver_slimevr.dll,driver_rebocap.dll`.
+rebocap's SteamVR driver also reads the HMD pose inside vrserver and its
+desktop app builds the body around that head, so with the old default its
+trackers took the flight twice: they travelled about twice as far as the HMD,
+and in rotation the chest and arms drifted from the head.
+
+### Testing
+
+All three native test suites pass. On 2026-10-27 a Quest 3S + rebocap user
+added `driver_rebocap.dll` to the setting by hand on the `slimevr-20261025`
+build and reported that translation and rotation then behaved correctly. That
+is the user's report only; their `vrserver.txt` was not checked.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

@@ -57,13 +57,13 @@ std::array<std::atomic<uint8_t>,64> anchoredDevices{};
 char hmdAnchoredSystems[256]="";
 std::atomic<bool> propertiesReady{false};
 double physicalHead[3]{}; // protected by gate
-// Solvers that read raw poses back from inside vrserver (SlimeVR reads the HMD this
-// way) must see the physical body. Otherwise they rebuild the skeleton around the
-// flown HMD and the flight lands on their trackers a second time.
+// Solvers that read raw poses back from inside vrserver (SlimeVR and rebocap read the
+// HMD this way) must see the physical body. Otherwise they rebuild the skeleton around
+// the flown HMD and the flight lands on their trackers a second time.
 using RawPoses=void(*)(void*,float,vr::TrackedDevicePose_t*,uint32_t);
 RawPoses rawOriginal=nullptr;
 void* rawTarget=nullptr;
-char physicalPoseDrivers[256]="driver_slimevr.dll";
+char physicalPoseDrivers[256]="driver_slimevr.dll,driver_rebocap.dll";
 // appliedGate is held only for one assignment by a pose update and one array copy
 // by the readback hook. The readback must not take `gate`: SlimeVR polls raw poses
 // every ~2 ms, pose updates hold `gate` across IPC mutex waits, and the HMD's own
