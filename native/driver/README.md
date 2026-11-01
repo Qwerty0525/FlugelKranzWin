@@ -122,6 +122,6 @@ SlimeVR のドライバーは `IVRServerDriverHost::GetRawTrackedDevicePoses` �
 
 このドライバーは `GetRawTrackedDevicePoses` をフックし、呼び出し元のモジュールのファイル名が `physicalPoseDrivers`（カンマ区切り、大文字小文字を区別しない完全一致、既定値 `driver_slimevr.dll,driver_rebocap.dll`）に含まれる場合だけ、各機器へ最後に適用した飛行変換を取り除いた物理姿勢を返します。これにより SlimeVR の骨格は物理空間で一貫し、そのトラッカーにはほかの機器と同じ飛行変換が一度だけ適用されます。移動と回転のどちらでも同じです。呼び出し元ごとの判定は `FlugelKranz: raw poses for ...` として `vrserver.txt` に記録されます。空文字列にするとフックを追加しません。
 
-rebocap も専用ドライバー `driver_rebocap.dll` が vrserver 内で HMD 姿勢を読み、デスクトップアプリがその頭部位置を基準に体を組むため、対象外では同じ二重適用が起きます。2026-10-27、Quest 3S + rebocap の利用者から、`physicalPoseDrivers` に `driver_rebocap.dll` を追加する前はトラッカーが HMD の約 2 倍移動し、回転では胸と腕がずれ、追加後は移動・回転とも正常になったと報告を得ました。利用者の報告のみで、`vrserver.txt` の判定行は未確認です。
+rebocap も専用ドライバー `driver_rebocap.dll` が vrserver 内で HMD 姿勢を読み、デスクトップアプリがその頭部位置を基準に体を組むため、対象外では同じ二重適用が起きます。2026-10-27、Quest 3S + rebocap の利用者から、`physicalPoseDrivers` に `driver_rebocap.dll` を追加する前はトラッカーが HMD の約 2 倍移動し、回転では胸と腕がずれ、追加後は移動・回転とも正常になったと報告を得ました。その後の飛行時の `vrserver.txt`（HMD は SteamVR の `oculus` ドライバー経由）に `raw poses for driver_rebocap.dll: physical (flight removed)` が記録されており、読み戻しは `driver_rebocap.dll` 自身から行われ、物理姿勢が返されていることを確認しました。
 
 `hmdAnchoredTrackingSystems` は、このフックが届かない経路（外部アプリの OpenVR クライアント API など）で HMD を読むソルバー向けの代替策です。一致した機器には、飛行後の HMD 位置を支点とする回転だけを適用します。移動の二重適用は防げますが、頭部と体幹で回転の基準が混ざるため、回転を含む飛行では姿勢がずれることを実機で確認しています。既定値は空です。`physicalPoseDrivers` の対象と同じソルバーには併用しないでください。

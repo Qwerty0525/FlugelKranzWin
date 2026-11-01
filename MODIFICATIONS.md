@@ -98,8 +98,11 @@ and in rotation the chest and arms drifted from the head.
 
 All three native test suites pass. On 2026-10-27 a Quest 3S + rebocap user
 added `driver_rebocap.dll` to the setting by hand on the `slimevr-20261025`
-build and reported that translation and rotation then behaved correctly. That
-is the user's report only; their `vrserver.txt` was not checked.
+build and reported that translation and rotation then behaved correctly. Their
+`vrserver.txt` from a later flight session (SteamVR loading the HMD through its
+`oculus` driver) shows `raw poses for driver_rebocap.dll: physical (flight
+removed)`, so rebocap's readback comes from `driver_rebocap.dll` itself and is
+served physical poses. This exact build has not been flown.
 
 ## 2026-10-25 — Redistribution notices
 
