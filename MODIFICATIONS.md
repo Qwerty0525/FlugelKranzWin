@@ -104,6 +104,31 @@ build and reported that translation and rotation then behaved correctly. Their
 removed)`, so rebocap's readback comes from `driver_rebocap.dll` itself and is
 served physical poses. This exact build has not been flown.
 
+## 2026-11-01 — Pose updates no longer wait for the app; readback pairing
+
+Affected files: `native/driver/Driver.cpp`, `native/driver/FrameHistory.h`,
+`native/driver/TransformTests.cpp`.
+
+Pose updates and `RunFrame` hold the driver's pose-update lock, and they used
+to wait up to 2 ms, twice per update, for the IPC mutex the app also takes. If
+the app paused while holding it (a .NET garbage collection, for example), every
+device's pose update stalled. They now only try the mutex: a miss keeps the
+previous flight command and skips one physical sample for the app.
+
+The readback hook could also remove the wrong transform. The new transform was
+published before the pose carrying it reached vrserver, so a solver reading in
+between got the previous pose with the new transform removed, a one-sample
+jump of up to the flight's per-update movement. While a pose is being
+forwarded, the readback now removes whichever of the previous and the new
+transform lands nearer that update's physical position, and the committed
+transform is recorded only after the pose has been forwarded.
+
+### Testing
+
+All three native test suites pass, including a new check that a readback
+holding either the old or the new pose has the matching transform removed.
+Not built into a release and not flown on hardware.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

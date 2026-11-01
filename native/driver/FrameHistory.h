@@ -46,6 +46,19 @@ inline void removeTransform(vr::TrackedDevicePose_t& pose,Pose transform) {
         for(int i=0;i<3;i++) velocity->v[i]=static_cast<float>(out[i]);
     }
 }
+// While a pose update is being forwarded, vrserver may still hold the pose flown with the
+// previous transform or already hold the new one. Pick the transform whose removal lands
+// nearer the physical position that update carries; the flight moves far more per update
+// than the body does.
+inline Pose readbackTransform(const vr::HmdMatrix34_t& readback,Pose previous,Pose pending,const double* physical) {
+    auto distance=[&](Pose transform) {
+        const auto unflown=removeTransform(readback,transform);
+        double sum=0;
+        for(int row=0;row<3;row++) {const double d=unflown.m[row][3]-physical[row];sum+=d*d;}
+        return sum;
+    };
+    return distance(pending)<=distance(previous)?pending:previous;
+}
 struct FrameMatch {bool found=false;Pose transform;double error=1;bool held=false;};
 struct PhysicalFrame {bool found=false;Pose pose;double predictionSeconds=0;bool interpolated=false;};
 class FrameHistory {

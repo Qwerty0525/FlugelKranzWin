@@ -64,14 +64,19 @@ using RawPoses=void(*)(void*,float,vr::TrackedDevicePose_t*,uint32_t);
 RawPoses rawOriginal=nullptr;
 void* rawTarget=nullptr;
 char physicalPoseDrivers[256]="driver_slimevr.dll,driver_rebocap.dll";
-// appliedGate is held only for one assignment by a pose update and one array copy
-// by the readback hook. The readback must not take `gate`: SlimeVR polls raw poses
-// every ~2 ms, pose updates hold `gate` across IPC mutex waits, and the HMD's own
-// updates then queue behind them. Measured on Quest 2 + VD + SlimeVR, that left the
+// appliedGate is held only for a few assignments before and after a pose update is
+// forwarded and for one array copy by the readback hook. The readback must not take
+// `gate`: SlimeVR polls raw poses every ~2 ms, pose updates hold `gate`, and the HMD's
+// own updates then queue behind them. Measured on Quest 2 + VD + SlimeVR, that left the
 // render correction using HMD samples 47 ms or older in 72% of flying frames
 // (0.3% before the hook), which is visible as judder in the headset.
 std::mutex appliedGate;
 std::array<flight::Pose,64> lastApplied{}; // protected by appliedGate
+// While updated() forwards a pose, the readback cannot tell whether vrserver already holds
+// it, so it also gets the transform that pose carries and its physical position.
+std::array<flight::Pose,64> pendingApplied{}; // protected by appliedGate
+std::array<std::array<double,3>,64> pendingPhysical{}; // protected by appliedGate
+std::array<bool,64> forwarding{}; // protected by appliedGate
 // Call sites are classified once each and cached lock-free, so the hot path takes
 // neither a mutex nor the loader lock.
 std::array<std::atomic<void*>,8> physicalCallSites{};
@@ -111,10 +116,19 @@ void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_
     const auto caller=_ReturnAddress();
     rawOriginal(host,prediction,poses,count);
     if(!poses || !count || !servesPhysicalPoses(caller)) return;
-    std::array<flight::Pose,64> applied;
-    {std::lock_guard<std::mutex> lock(appliedGate);applied=lastApplied;}
-    for(uint32_t device=0;device<count && device<applied.size();device++)
-        flight::removeTransform(poses[device],applied[device]);
+    std::array<flight::Pose,64> applied,pending;
+    std::array<std::array<double,3>,64> physical;
+    std::array<bool,64> updating;
+    {
+        std::lock_guard<std::mutex> lock(appliedGate);
+        applied=lastApplied;pending=pendingApplied;physical=pendingPhysical;updating=forwarding;
+    }
+    for(uint32_t device=0;device<count && device<applied.size();device++) {
+        const auto transform=updating[device]
+            ?flight::readbackTransform(poses[device].mDeviceToAbsoluteTracking,applied[device],pending[device],physical[device].data())
+            :applied[device];
+        flight::removeTransform(poses[device],transform);
+    }
 }
 bool physicalHeadValid=false; // protected by gate
 
@@ -257,13 +271,16 @@ bool observedAdded(int index,void* host,const char* serial,vr::ETrackedDeviceCla
 bool added0(void* h,const char* s,vr::ETrackedDeviceClass c,vr::ITrackedDeviceServerDriver* d) {return observedAdded(0,h,s,c,d);}
 bool added1(void* h,const char* s,vr::ETrackedDeviceClass c,vr::ITrackedDeviceServerDriver* d) {return observedAdded(1,h,s,c,d);}
 
-bool enter() {
-    auto result=WaitForSingleObject(ipcMutex,2);
+bool enter(DWORD timeout=2) {
+    auto result=WaitForSingleObject(ipcMutex,timeout);
     return result==WAIT_OBJECT_0 || result==WAIT_ABANDONED;
 }
+// Pose updates and RunFrame hold `gate`, so they only try the IPC mutex. Waiting for it
+// would stall every device's pose update whenever the app is paused while holding it
+// (a .NET GC, for example). A miss keeps the previous command and skips one sample.
 void refresh() {
     auto now=GetTickCount64();
-    if (state && enter()) {
+    if (state && enter(0)) {
         state->driverHeartbeat=now;
         if(state->owner && (now<state->clientHeartbeat || now-state->clientHeartbeat>=500)) {
             state->owner=0;state->enabled=0;
@@ -283,10 +300,11 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
     if(size!=sizeof(vr::DriverPose_t)) { originals[index](host,device,input,size); return; }
     const bool anchored=device!=0 && classify(device)==2;
     vr::DriverPose_t output;
+    flight::Pose transform;
     {
         std::lock_guard<std::mutex> lock(gate);
         refresh();
-        if(state && device<64 && enter()) {
+        if(state && device<64 && enter(0)) {
             auto& sample=state->samples[device];
             sample.pose=flight::physical(input);
             sample.flags=(input.deviceIsConnected?1u:0u)|(input.poseIsValid?2u:0u);
@@ -297,7 +315,7 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             auto head=flight::physical(input);
             if(flight::valid(head)) {physicalHead[0]=head.px;physicalHead[1]=head.py;physicalHead[2]=head.pz;physicalHeadValid=true;}
         }
-        auto transform=command;
+        transform=command;
         if(anchored) {
             // The solver already moved these trackers with the flown HMD it read back.
             // Rotate them about where that HMD is now instead of moving them again.
@@ -306,13 +324,24 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             transform=physicalHeadValid?flight::aboutPivot(command,flownHead):flight::Pose{};
         }
         output=flight::apply(input,transform);
-        if(device<lastApplied.size()) {std::lock_guard<std::mutex> applied(appliedGate);lastApplied[device]=transform;}
+        if(device<lastApplied.size()) {
+            const auto body=flight::physical(input);
+            std::lock_guard<std::mutex> applied(appliedGate);
+            pendingApplied[device]=transform;
+            pendingPhysical[device]={body.px,body.py,body.pz};
+            forwarding[device]=true;
+        }
         if(device==0 && correctFramePose) {
             std::lock_guard<std::mutex> historyLock(historyGate);
             frameHistory.add(received,output,command,&input);
         }
     }
     originals[index](host,device,output,size);
+    if(device<lastApplied.size()) {
+        std::lock_guard<std::mutex> applied(appliedGate);
+        lastApplied[device]=transform;
+        forwarding[device]=false;
+    }
 }
 void updated0(void* h,uint32_t d,const vr::DriverPose_t& p,uint32_t n) {updated(0,h,d,p,n);}
 void updated1(void* h,uint32_t d,const vr::DriverPose_t& p,uint32_t n) {updated(1,h,d,p,n);}
@@ -419,7 +448,11 @@ public:
         command={};lastHeartbeat=0;
         physicalHeadValid=false;
         for(auto& known:anchoredDevices) known.store(0);
-        {std::lock_guard<std::mutex> applied(appliedGate);lastApplied.fill(flight::Pose{});}
+        {
+            std::lock_guard<std::mutex> applied(appliedGate);
+            lastApplied.fill(flight::Pose{});pendingApplied.fill(flight::Pose{});
+            pendingPhysical.fill({});forwarding.fill(false);
+        }
         for(auto& site:physicalCallSites) site.store(nullptr);
         for(auto& site:flownCallSites) site.store(nullptr);
         propertiesReady=false;

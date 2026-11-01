@@ -111,6 +111,17 @@ int main() {
             &&std::memcmp(&unflown.vVelocity,&flown.vVelocity,sizeof(flown.vVelocity))==0
             &&std::memcmp(&unflown.vAngularVelocity,&flown.vAngularVelocity,sizeof(flown.vAngularVelocity))==0,
             "identity readback is left untouched");
+        // A readback racing a pose update holds either the pose flown with the previous
+        // transform or the new one; it must remove whichever that pose carries.
+        flight::Pose previousTransform{0.36,0.48,0,0.8,2.9,-1,2};
+        const auto updated=flight::physical(body);
+        const double updatedPosition[3]{updated.px,updated.py,updated.pz};
+        const auto oldPose=flight::matrix(flight::physical(flight::apply(body,previousTransform)));
+        const auto newPose=flight::matrix(flight::physical(flight::apply(body,flightTransform)));
+        auto picked=flight::readbackTransform(oldPose,previousTransform,flightTransform,updatedPosition);
+        check(picked.px==previousTransform.px,"readback still holding the old pose removes the old transform");
+        picked=flight::readbackTransform(newPose,previousTransform,flightTransform,updatedPosition);
+        check(picked.px==flightTransform.px,"readback already holding the new pose removes the new transform");
     }
     std::puts("XYZ body poses, origin composition, derivatives, calibration, reset, HMD-anchored pivot, physical readback: passed");
 }
