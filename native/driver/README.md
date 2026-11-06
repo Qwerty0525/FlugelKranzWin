@@ -102,7 +102,7 @@ HMD の登録と `GetComponent` を観測し、`IVRDriverDirectModeComponent_009
 | `matchError=-1` | 時刻ベース方式では姿勢照合誤差を計算しない |
 | `layers` / `missed` / `held` | 前の記録以降のレイヤー数 / 未補正数 / 保持中の経路の使用数 |
 
-`driverAudit=true`（ソース既定値）では、`RunFrame` が `gate` を解放した後に毎秒 1 行の `DriverAudit` を記録します。FrameAudit にない値だけを持ちます。値は前の行以降の集計です。
+`driverAudit=true`（同梱の `default.vrsettings` とソース既定値はともに `false`。アプリの「詳細診断」で切り替え）では、`RunFrame` が `gate` を解放した後に毎秒 1 行の `DriverAudit` を記録します。FrameAudit にない値だけを持ちます。値は前の行以降の集計です。
 
 | 項目 | 意味 |
 | --- | --- |

@@ -8,10 +8,10 @@ namespace FlugelKranz.Tests;
 public class DriverSettingsFileTests
 {
     [Fact]
-    public void ShippedDriverSettingsKeepTheAuditOn()
+    public void ShippedDriverSettingsKeepTheAuditOff()
     {
         string shipped = Path.Combine(RepositoryRoot(), "native", "driver", "resources", "settings", "default.vrsettings");
-        Assert.True(DriverSettingsFile.ShippedDriverAudit);
+        Assert.False(DriverSettingsFile.ShippedDriverAudit);
         Assert.Equal(DriverSettingsFile.ShippedDriverAudit, DriverSettingsFile.ReadDriverAudit(shipped));
     }
 
@@ -102,8 +102,11 @@ public class DriverSettingsFileTests
             Assert.Equal($"Saved to {path}. Restart SteamVR to apply.", vm.DetailedDiagnosticsStatus);
             Assert.Equal(100, JsonNode.Parse(File.ReadAllText(path))!["driver_flugelkranz"]!["loadPriority"]!.GetValue<int>());
 
-            vm.ResetDetailedDiagnosticsCommand.Execute(null);
+            vm.DetailedDiagnostics = true;
             Assert.True(DriverSettingsFile.ReadDriverAudit(path));
+            vm.ResetDetailedDiagnosticsCommand.Execute(null);
+            Assert.False(vm.DetailedDiagnostics);
+            Assert.False(DriverSettingsFile.ReadDriverAudit(path));
 
             vm.LoadDriverSettings(path, false);
             Assert.EndsWith("steamvr.vrsettings sets driverAudit = false for this driver, which takes precedence over this setting.",
@@ -111,7 +114,7 @@ public class DriverSettingsFileTests
             vm.LoadDriverSettings(null, null);
             Assert.False(vm.HasDriverSettings);
             Assert.False(vm.DetailedDiagnostics);
-            Assert.True(DriverSettingsFile.ReadDriverAudit(path), "loading never writes");
+            Assert.False(DriverSettingsFile.ReadDriverAudit(path), "loading never writes");
         }
         finally { Directory.Delete(root, true); }
     }

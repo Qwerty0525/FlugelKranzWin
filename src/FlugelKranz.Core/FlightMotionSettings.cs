@@ -90,9 +90,10 @@ public sealed record FlugelKranzSettings
     /// <summary>
     /// Run the command loop every <see cref="FlightController.HighRateIntervalMilliseconds"/> ms on a
     /// high-resolution timer instead of Task.Delay(10), which waits about 15.6 ms on Windows.
-    /// Missing from older configs, so they keep the old loop.
+    /// On by default. Configs written before the option existed have no key and get the default;
+    /// a saved <c>false</c> is kept.
     /// </summary>
-    public bool HighRateCommandLoop { get; init; }
+    public bool HighRateCommandLoop { get; init; } = true;
 
     public FlugelKranzSettings Normalized() => this with
     {

@@ -447,6 +447,37 @@ reports the restart, Reset, the steamvr.vrsettings note, and no driver
 folder. 210 C# tests, 207 pass (the 3 known `[AvaloniaFact]` discovery
 errors). Not tried in the real app.
 
+## 2026-11-06 — Defaults: high-rate loop on, driverAudit off
+
+Affected files: `src/FlugelKranz.Core/FlightMotionSettings.cs`,
+`src/FlugelKranz/Diagnostics/DriverSettingsFile.cs`,
+`native/driver/resources/settings/default.vrsettings`,
+`native/driver/README.md`, `tests/FlugelKranz.Tests/CommandLoopTests.cs`,
+`tests/FlugelKranz.Tests/DriverSettingsFileTests.cs`.
+
+After the flight on 2026-11-06 (the high-rate loop cut the avatar shake about
+threefold), **Command interval → High rate** is on by default and the shipped
+**Detailed diagnostics** (`driverAudit`) is off.
+
+`highRateCommandLoop` now defaults to `true`. The app writes every setting on
+each save, so a `config.json` that has the key was saved by a build that had
+the option, and its value (including `false`) is kept; a config without the
+key, written before the option existed, gets the new default. Nothing is
+migrated or rewritten on load.
+
+`driverAudit` is `false` in the shipped `default.vrsettings` and in
+`DriverSettingsFile.ShippedDriverAudit`, so the checkbox shows it off after a
+rebuild and Reset turns it off. `build-windows.ps1` copies the shipped file
+over the deployed one, so a deploy turns an enabled audit off again. The
+driver's own default for a missing key was already `false`.
+
+### Testing
+
+`CommandLoopTests` checks the new default, that a config without the key
+loads with it on and that a saved `false` stays off. `DriverSettingsFileTests`
+checks the shipped file and the checkbox's Reset against the new value.
+211 C# tests, 208 pass (the 3 known `[AvaloniaFact]` discovery errors).
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

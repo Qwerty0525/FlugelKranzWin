@@ -13,8 +13,8 @@ public static class DriverSettingsFile
 {
     public const string Section = "driver_flugelkranz";
     public const string DriverAuditKey = "driverAudit";
-    /// <summary>What build-windows.ps1 ships (and what Reset restores). This test build keeps the audit on.</summary>
-    public const bool ShippedDriverAudit = true;
+    /// <summary>What build-windows.ps1 ships (and what Reset restores). Off: turn it on to collect DriverAudit lines.</summary>
+    public const bool ShippedDriverAudit = false;
 
     private static readonly JsonDocumentOptions ReadOptions = new()
     {

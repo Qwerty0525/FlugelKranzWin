@@ -4,7 +4,7 @@
     "observeFrames": true,
     "correctFramePose": true,
     "timeBasedFramePose": true,
-    "driverAudit": true,
+    "driverAudit": false,
     "fallbackFramePose": false,
     "readbackGenerations": false,
     "hmdAnchoredTrackingSystems": "",

@@ -83,6 +83,33 @@ public class CommandLoopTests
         Assert.False(engine.HasLinearInertia);
     }
 
+    [Fact]
+    public void HighRateIsTheDefaultButASavedFalseIsKept()
+    {
+        Assert.True(FlugelKranzSettings.Default.HighRateCommandLoop);
+        string root = Path.Combine(Path.GetTempPath(), "fk-loop-default-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string path = Path.Combine(root, "config.json");
+            var store = new FlugelKranz.ViewModels.SettingsStore(path);
+            store.Save(FlugelKranzSettings.Default);
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            Assert.True(node["highRateCommandLoop"]!.GetValue<bool>());
+
+            // A config written before the option existed has no key: it gets the new default.
+            node.Remove("highRateCommandLoop");
+            File.WriteAllText(path, node.ToJsonString());
+            Assert.True(new FlugelKranz.ViewModels.SettingsStore(path).Load().HighRateCommandLoop);
+
+            // A user who switched it off keeps it off.
+            node["highRateCommandLoop"] = false;
+            File.WriteAllText(path, node.ToJsonString());
+            Assert.False(new FlugelKranz.ViewModels.SettingsStore(path).Load().HighRateCommandLoop);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static InputFrame Frame(float leftX, float leftGrip) => new(
         new(Quaternion.Identity, new(0, 1.7f, 0)),
         true,
