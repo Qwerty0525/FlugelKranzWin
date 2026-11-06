@@ -129,6 +129,26 @@ All three native test suites pass, including a new check that a readback
 holding either the old or the new pose has the matching transform removed.
 Not built into a release and not flown on hardware.
 
+## 2026-11-06 — Driver test harness and a flags line in the log
+
+Affected files: `native/driver/Driver.cpp`, `native/driver/DriverHarness.h`
+(new), `native/driver/DriverPathTests.cpp`, `native/driver/README.md`.
+
+Settings are now read by one function, `loadSettings()`, called from `Init`
+as before. It also writes one `FlugelKranz flags:` line to `vrserver.txt`
+with the value of every behaviour flag, so a log always says which paths
+were live. A flag missing from every settings file keeps the behaviour the
+driver had before that flag existed. Each change below adds its own flag.
+Nothing else changes for the user.
+
+### Testing
+
+`DriverHarness.h` stands in for the driver log, settings, device properties
+and the app's shared memory and IPC mutex, so `driver_path_tests` now runs
+`loadSettings()`, `classify()`, `refresh()` (command taken, app pausing
+while it holds the mutex, invalid command, dead client) and the readback
+caller check through the production code. All four native test suites pass.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

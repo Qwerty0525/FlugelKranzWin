@@ -346,6 +346,38 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
 void updated0(void* h,uint32_t d,const vr::DriverPose_t& p,uint32_t n) {updated(0,h,d,p,n);}
 void updated1(void* h,uint32_t d,const vr::DriverPose_t& p,uint32_t n) {updated(1,h,d,p,n);}
 
+// A flag missing from every settings file keeps its compiled fallback. The fallback is
+// what the driver did before the flag existed, so an old default.vrsettings next to a
+// new dll changes nothing.
+bool readFlag(const char* key,bool fallback) {
+    vr::EVRSettingsError error=vr::VRSettingsError_None;
+    const bool value=vr::VRSettings()->GetBool("driver_flugelkranz",key,&error);
+    return error==vr::VRSettingsError_None?value:fallback;
+}
+// Read once from Init, before any hook is installed.
+void loadSettings() {
+    observeFrames=readFlag("observeFrames",false);
+    correctFramePose=readFlag("correctFramePose",false);
+    timeBasedFramePose=readFlag("timeBasedFramePose",false);
+    char configured[sizeof(hmdAnchoredSystems)]{};
+    vr::EVRSettingsError settingsError=vr::VRSettingsError_None;
+    vr::VRSettings()->GetString("driver_flugelkranz","hmdAnchoredTrackingSystems",configured,sizeof(configured),&settingsError);
+    if(settingsError==vr::VRSettingsError_None) std::memcpy(hmdAnchoredSystems,configured,sizeof(configured));
+    char message[320];
+    std::snprintf(message,sizeof(message),"FlugelKranz: HMD-anchored tracking systems: '%s'",hmdAnchoredSystems);
+    vr::VRDriverLog()->Log(message);
+    char drivers[sizeof(physicalPoseDrivers)]{};
+    settingsError=vr::VRSettingsError_None;
+    vr::VRSettings()->GetString("driver_flugelkranz","physicalPoseDrivers",drivers,sizeof(drivers),&settingsError);
+    if(settingsError==vr::VRSettingsError_None) std::memcpy(physicalPoseDrivers,drivers,sizeof(drivers));
+    std::snprintf(message,sizeof(message),"FlugelKranz: physical raw poses for drivers: '%s'",physicalPoseDrivers);
+    vr::VRDriverLog()->Log(message);
+    // One line with every behaviour flag, so a log always says which paths were live.
+    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d",
+        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0);
+    vr::VRDriverLog()->Log(message);
+}
+
 class Provider final : public vr::IServerTrackedDeviceProvider {
     bool minHookInitialized=false;
 public:
@@ -363,25 +395,8 @@ public:
         if(result!=MH_OK) {Cleanup();return vr::VRInitError_Driver_Failed;}
         minHookInitialized=true;
         observerStopping=false;
-        observeFrames=vr::VRSettings()->GetBool("driver_flugelkranz","observeFrames");
-        correctFramePose=vr::VRSettings()->GetBool("driver_flugelkranz","correctFramePose");
-        timeBasedFramePose=vr::VRSettings()->GetBool("driver_flugelkranz","timeBasedFramePose");
-        {
-            char configured[sizeof(hmdAnchoredSystems)]{};
-            vr::EVRSettingsError settingsError=vr::VRSettingsError_None;
-            vr::VRSettings()->GetString("driver_flugelkranz","hmdAnchoredTrackingSystems",configured,sizeof(configured),&settingsError);
-            if(settingsError==vr::VRSettingsError_None) std::memcpy(hmdAnchoredSystems,configured,sizeof(configured));
-            char message[320];
-            std::snprintf(message,sizeof(message),"FlugelKranz: HMD-anchored tracking systems: '%s'",hmdAnchoredSystems);
-            vr::VRDriverLog()->Log(message);
-            char drivers[sizeof(physicalPoseDrivers)]{};
-            settingsError=vr::VRSettingsError_None;
-            vr::VRSettings()->GetString("driver_flugelkranz","physicalPoseDrivers",drivers,sizeof(drivers),&settingsError);
-            if(settingsError==vr::VRSettingsError_None) std::memcpy(physicalPoseDrivers,drivers,sizeof(drivers));
-            std::snprintf(message,sizeof(message),"FlugelKranz: physical raw poses for drivers: '%s'",physicalPoseDrivers);
-            vr::VRDriverLog()->Log(message);
-            propertiesReady=true;
-        }
+        loadSettings();
+        propertiesReady=true;
         const char* versions[]={"IVRServerDriverHost_006","IVRServerDriverHost_005"};
         void* detours[]={reinterpret_cast<void*>(updated0),reinterpret_cast<void*>(updated1)};
         void* addedDetours[]={reinterpret_cast<void*>(added0),reinterpret_cast<void*>(added1)};
