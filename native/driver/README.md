@@ -130,7 +130,7 @@ HMD の登録と `GetComponent` を観測し、`IVRDriverDirectModeComponent_009
 ctest --test-dir artifacts/driver-build -C Release --output-on-failure
 ```
 
-MSVC x64、Windows SDK、CMake、.NET 10 が必要です。`transform_tests`、`observer_tests`、`frame_tests` は座標合成・恒等変換・フレーム情報保持・物理姿勢の補間と予測を検証します。`driver_path_tests` は姿勢更新フックを偽の元関数で駆動し、恒等変換のパススルー、飛行変換の適用、読み戻し用の保留・確定の順序、古い指令の解除、未知の ABI サイズの素通しを検証します。`DriverHarness.h` は vrserver の代わりにドライバーログ・設定・デバイスプロパティ・アプリ側の共有メモリーと IPC ミューテックスを用意し、設定読み込みとフラグ行、`classify()`、`refresh()` の取得・取得失敗・無効指令・所有権解除、読み戻しの呼び出し元判定を実際のコードで検証します。テストだけでは実機のフック互換性や表示品質を確認できません。
+MSVC x64、Windows SDK、CMake、.NET 10 が必要です。`transform_tests`、`observer_tests`、`frame_tests` は座標合成・恒等変換・フレーム情報保持・物理姿勢の補間と予測を検証します。`driver_path_tests` は姿勢更新フックを偽の元関数で駆動し、恒等変換のパススルー、飛行変換の適用、読み戻し用の保留・確定の順序、古い指令の解除、未知の ABI サイズの素通しを検証します。`DriverHarness.h` は vrserver の代わりにドライバーログ・設定・デバイスプロパティ・アプリ側の共有メモリーと IPC ミューテックスを用意し、設定読み込みとフラグ行、`classify()`、`refresh()` の取得・取得失敗・無効指令・所有権解除、読み戻しの呼び出し元判定を実際のコードで検証します。同じ実行ファイルで `DriverAudit` の各カウンター、`readbackGenerations` の対応付け（転送をまたぐ読み戻し、向きだけで区別できる回転、確定順序の逆転）と 2 スレッドの負荷試験も行います。テストだけでは実機のフック互換性や表示品質を確認できません。
 
 同梱コードの出典とライセンスを保持してください。
 
@@ -152,6 +152,15 @@ MSVC x64、Windows SDK、CMake、.NET 10 が必要です。`transform_tests`、`
 SlimeVR のドライバーは `IVRServerDriverHost::GetRawTrackedDevicePoses` で HMD やコントローラーの姿勢を読み戻し、それを基準に骨格を組みます。飛行後の姿勢をそのまま渡すと、骨格が飛行後の頭部に合わせて作られたうえで、SlimeVR のトラッカーに飛行変換がもう一度適用されます。2026-09-14、Quest 2 + Touch / VD + SlimeVR で飛行を 33.6 m 移動させた状態を記録し、SlimeVR のトラッカーが飛行後の頭部から 0.4〜1.0 m、物理的な頭部から約 33 m の位置で送られていることを確認しました。VD の機器とコントローラーは逆の関係でした。
 
 このドライバーは `GetRawTrackedDevicePoses` をフックし、呼び出し元のモジュールのファイル名が `physicalPoseDrivers`（カンマ区切り、大文字小文字を区別しない完全一致、既定値 `driver_slimevr.dll,driver_rebocap.dll`）に含まれる場合だけ、各機器へ最後に適用した飛行変換を取り除いた物理姿勢を返します。これにより SlimeVR の骨格は物理空間で一貫し、そのトラッカーにはほかの機器と同じ飛行変換が一度だけ適用されます。移動と回転のどちらでも同じです。呼び出し元ごとの判定は `FlugelKranz: raw poses for ...` として `vrserver.txt` に記録されます。空文字列にするとフックを追加しません。
+
+### 読み戻しと転送中の姿勢の対応付け
+
+ソルバーが読み戻す瞬間、その機器の姿勢更新が vrserver へ転送中のことがあります。vrserver が持つのは前の飛行変換の姿勢か新しい変換の姿勢か分からないため、間違った変換を取り除くと 1 回の読み戻しだけ飛行 1 ステップ分ずれます。
+
+- `readbackGenerations=false`（既定、`45fdf83` の方式）：転送中の機器だけ、確定済みの変換と転送中の変換のうち、取り除いた位置がその更新の物理位置に近い方を使います。読み戻しが vrserver を呼んでいるあいだに転送が始まって終わると、転送中と見なされず新しい変換を古い姿勢から取り除きます。位置だけで比べるため、HMD を支点とする回転（ヘッドパイロット回転）では選択が実質ランダムです。同じ機器の転送が重なり確定の順序が入れ替わると、確定済みの変換が古い値に戻ります。
+- `readbackGenerations=true`：機器ごとの転送に世代番号を付け、直近 8 世代の変換と物理姿勢（位置と向き）を保存します。読み戻しは vrserver を呼ぶ前と後で確定済みの世代を比べ、変化がなく転送中のものもなければ確定済みの変換を使います。そうでなければ、呼ぶ前に確定していた世代から最新の世代までの候補のうち、取り除いた姿勢が保存した物理姿勢に位置と向きの両方で最も近いものを使います。確定は新しい世代へだけ進み、古い転送が後から終わった場合は確定済みの変換を変えず、次の順序どおりの確定まで直近の候補すべてから選びます。
+
+`readbackGenerations=true` でも、読み戻し 1 回のあいだに同じ機器の転送が 8 回を超えると候補が足りなくなり、`DriverAudit` の `overflow` に数えます。vrserver が転送を非同期に反映する場合、フック境界での世代の比較だけでは不十分ですが、この前提は未確認です。SlimeVR と rebocap の両方の実機で確認するまで既定値は false です。
 
 rebocap も専用ドライバー `driver_rebocap.dll` が vrserver 内で HMD 姿勢を読み、デスクトップアプリがその頭部位置を基準に体を組むため、対象外では同じ二重適用が起きます。2026-10-27、Quest 3S + rebocap の利用者から、`physicalPoseDrivers` に `driver_rebocap.dll` を追加する前はトラッカーが HMD の約 2 倍移動し、回転では胸と腕がずれ、追加後は移動・回転とも正常になったと報告を得ました。その後の飛行時の `vrserver.txt`（HMD は SteamVR の `oculus` ドライバー経由）に `raw poses for driver_rebocap.dll: physical (flight removed)` が記録されており、読み戻しは `driver_rebocap.dll` 自身から行われ、物理姿勢が返されていることを確認しました。
 

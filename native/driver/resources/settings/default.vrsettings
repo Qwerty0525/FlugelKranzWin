@@ -6,6 +6,7 @@
     "timeBasedFramePose": true,
     "driverAudit": true,
     "fallbackFramePose": false,
+    "readbackGenerations": false,
     "hmdAnchoredTrackingSystems": "",
     "physicalPoseDrivers": "driver_slimevr.dll,driver_rebocap.dll"
   }

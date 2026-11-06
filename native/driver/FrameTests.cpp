@@ -117,5 +117,20 @@ int main() {
     check(picked.found && flight::isIdentity(picked.transform),"a layer rendered before flight started is left alone");
     picked=history.fallback(invalid);
     check(picked.found && flight::isIdentity(picked.transform),"a nonfinite layer is left alone");
-    std::puts("Frame inverse, delayed commands, prediction, ambiguity and expiration, fallback: passed");
+
+    // pickReadback(): orientation separates transforms that leave the device in place.
+    p=physicalPose();
+    const auto body=flight::physical(p);
+    const double pivot[3]{body.px,body.py,body.pz};
+    auto turn=[&](double radians) {return flight::aboutPivot(flight::Pose{0,std::sin(radians/2),0,std::cos(radians/2),0,0,0},pivot);};
+    const flight::ReadbackCandidate candidates[]{{turn(0.6),body},{turn(0.6244),body}};
+    auto readback=flight::matrix(flight::physical(flight::apply(p,candidates[0].transform)));
+    auto pick=flight::pickReadback(readback,candidates,2);
+    check(!pick.pending && pick.transform.y==candidates[0].transform.y && pick.residual<1e-5,"older turn picked by orientation");
+    check(pick.farther>2*pick.nearer+1,"the other turn scores clearly worse");
+    readback=flight::matrix(flight::physical(flight::apply(p,candidates[1].transform)));
+    pick=flight::pickReadback(readback,candidates,2);
+    check(pick.pending && pick.transform.y==candidates[1].transform.y,"newer turn picked by orientation");
+    check(!flight::pickReadback(readback,candidates,0).pending,"no candidates, no pick");
+    std::puts("Frame inverse, delayed commands, prediction, ambiguity and expiration, fallback, readback pick: passed");
 }

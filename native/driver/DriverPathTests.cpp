@@ -61,7 +61,7 @@ void harnessTests(const vr::DriverPose_t& tracker,uint32_t device) {
     // Settings: shipped defaults, a changed flag, and missing keys keeping the fallbacks.
     harness::shippedDefaults();
     loadSettings();
-    require(context.log.contains("FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1 driverAudit=1 fallbackFramePose=0"));
+    require(context.log.contains("FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1 driverAudit=1 fallbackFramePose=0 readbackGenerations=0"));
     require(std::strcmp(physicalPoseDrivers,"driver_slimevr.dll,driver_rebocap.dll")==0);
     context.settings.bools["timeBasedFramePose"]=false;
     context.log.clear();
@@ -219,6 +219,150 @@ void auditTests(const vr::DriverPose_t& tracker,uint32_t device) {
     observeFrames=false;
     std::puts("audit: off, command changes/intervals, IPC misses, invalid vs revoked, virtual step, readback window, line and reset, Direct Mode report: passed");
 }
+
+// P3 fakes.
+flight::Pose nextCommand;
+vr::DriverPose_t nextTracker{};
+bool straddle=false,nestNext=false;
+// vrserver answers with the pose it holds, then a whole forward of the device lands
+// before the hook looks at the committed transforms.
+void straddlingReadback(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_t count) {
+    serverReadback(host,prediction,poses,count);
+    if(!straddle) return;
+    straddle=false;
+    harness::publish(nextCommand);
+    updated(0,expectedHost,readbackDevice,nextTracker,sizeof(nextTracker));
+}
+// A newer forward of the same device overtakes this one, which reaches vrserver last.
+void nestingOriginal(void* host,uint32_t device,const vr::DriverPose_t& pose,uint32_t size) {
+    if(nestNext) {
+        nestNext=false;
+        harness::publish(nextCommand);
+        updated(0,expectedHost,device,nextTracker,size);
+    }
+    storingOriginal(host,device,pose,size);
+}
+std::mutex serverLock;
+std::array<vr::TrackedDevicePose_t,16> stressServer{};
+void stressOriginal(void*,uint32_t device,const vr::DriverPose_t& pose,uint32_t) {
+    std::lock_guard<std::mutex> lock(serverLock);
+    if(device<stressServer.size()) stressServer[device]=tracked(pose);
+}
+void spinFor(double ms) {
+    const auto end=std::chrono::steady_clock::now()+std::chrono::duration<double,std::milli>(ms);
+    while(std::chrono::steady_clock::now()<end) std::this_thread::yield();
+}
+void stressReadback(void*,float,vr::TrackedDevicePose_t* poses,uint32_t count) {
+    {
+        std::lock_guard<std::mutex> lock(serverLock);
+        for(uint32_t i=0;i<count && i<stressServer.size();i++) poses[i]=stressServer[i];
+    }
+    spinFor(0.2); // widen the gap between vrserver's copy and the hook's look
+}
+flight::Pose yaw(double radians,double px=0) {return {0,std::sin(radians/2),0,std::cos(radians/2),px,0,0};}
+// Writer at about 2 kHz with a new command every update, reader at about 1 kHz. Returns
+// the readbacks whose pose did not come back physical.
+uint64_t stress(const vr::DriverPose_t& tracker,uint32_t device,uint64_t& reads) {
+    originals[0]=stressOriginal;rawOriginal=stressReadback;
+    stressServer.fill({});
+    const auto body=flight::matrix(flight::physical(tracker));
+    std::atomic<bool> running{true};
+    std::atomic<uint64_t> mispaired{0},count{0};
+    std::thread reader([&]{
+        while(running.load()) {
+            std::array<vr::TrackedDevicePose_t,16> poses{};
+            rawPoses(expectedHost,0,poses.data(),static_cast<uint32_t>(poses.size()));
+            count++;
+            if(poses[device].bPoseIsValid && positionError(poses[device].mDeviceToAbsoluteTracking,body)>1e-3) mispaired++;
+            spinFor(1);
+        }
+    });
+    for(int k=1;k<=2000;k++) {
+        harness::publish(yaw(0.002*k,0.01*k));
+        updated(0,expectedHost,device,tracker,sizeof(tracker));
+        spinFor(0.5);
+    }
+    running=false;reader.join();
+    originals[0]=storingOriginal;rawOriginal=serverReadback;
+    reads=count.load();
+    return mispaired.load();
+}
+
+// P3: readbacks pair each pose with the transform it was flown with.
+void generationTests(const vr::DriverPose_t& tracker,uint32_t device) {
+    const flight::Pose a{0,std::sqrt(0.5),0,std::sqrt(0.5),3,-1,2},b{0,0,0,1,1,0,0},c{0,0,0,1,0,2,0};
+    const auto body=flight::matrix(flight::physical(tracker));
+    harness::servePhysicalPosesToThisProcess();
+    originals[0]=storingOriginal;rawOriginal=serverReadback;
+    readbackDevice=device;nextTracker=tracker;
+    driverAudit=true;
+
+    // A forward starts and commits while vrserver's answer is on its way back. 45fdf83
+    // then sees no forward in progress and removes the new transform from the old pose.
+    auto straddled=[&](bool generations) {
+        readbackGenerations=generations;
+        harness::publish(a);updated(0,expectedHost,device,tracker,sizeof(tracker));
+        rawOriginal=straddlingReadback;nextCommand=b;straddle=true;
+        std::array<vr::TrackedDevicePose_t,16> poses{};
+        rawPoses(expectedHost,0,poses.data(),static_cast<uint32_t>(poses.size()));
+        rawOriginal=serverReadback;
+        require(!straddle && same(lastApplied[device],b));
+        return positionError(poses[device].mDeviceToAbsoluteTracking,body);
+    };
+    require(straddled(false)>0.5);
+    require(straddled(true)<1e-5);
+
+    // Head-pilot turn about the device itself: both transforms leave it in the same place,
+    // only the orientation tells them apart.
+    readbackGenerations=true;
+    const auto physical=flight::physical(tracker);
+    const double pivot[3]{physical.px,physical.py,physical.pz};
+    const auto before=flight::aboutPivot(yaw(0.6),pivot),after=flight::aboutPivot(yaw(0.6+0.0244),pivot);
+    harness::publish(before);updated(0,expectedHost,device,tracker,sizeof(tracker));
+    harness::publish(after);
+    originals[0]=readingOriginal;
+    updated(0,expectedHost,device,tracker,sizeof(tracker));
+    originals[0]=storingOriginal;
+    require(positionError(readbackDuringForward.mDeviceToAbsoluteTracking,body)<1e-5);
+    require(flight::matrixError(readbackDuringForward.mDeviceToAbsoluteTracking,body)<0.1); // a wrong pick is about 6
+
+    // Out-of-order commit: the older forward finishes last and is what vrserver holds.
+    for(bool generations:{false,true}) {
+        readbackGenerations=generations;
+        {std::lock_guard<std::mutex> lock(auditGate);audit=Audit{};}
+        harness::publish(a);updated(0,expectedHost,device,tracker,sizeof(tracker));
+        harness::publish(b);nextCommand=c;nestNext=true;
+        originals[0]=nestingOriginal;
+        updated(0,expectedHost,device,tracker,sizeof(tracker));
+        originals[0]=storingOriginal;
+        require(!nestNext && auditNow().reorderedCommits==1 && reordered[device]);
+        // 45fdf83 lets the late commit move lastApplied back; now it only moves forward.
+        require(same(lastApplied[device],generations?c:b));
+        std::array<vr::TrackedDevicePose_t,16> poses{};
+        rawPoses(expectedHost,0,poses.data(),static_cast<uint32_t>(poses.size()));
+        require(positionError(poses[device].mDeviceToAbsoluteTracking,body)<1e-5);
+        harness::publish(a);updated(0,expectedHost,device,tracker,sizeof(tracker));
+        require(!reordered[device] && same(lastApplied[device],a));
+    }
+
+    // Two threads, a new transform on every update.
+    uint64_t reads=0;
+    readbackGenerations=false;
+    const auto oldMispaired=stress(tracker,device,reads);
+    std::printf("stress, readbackGenerations=0: %llu of %llu readbacks mispaired\n",static_cast<unsigned long long>(oldMispaired),static_cast<unsigned long long>(reads));
+    readbackGenerations=true;
+    {std::lock_guard<std::mutex> lock(auditGate);audit=Audit{};}
+    const auto mispaired=stress(tracker,device,reads);
+    const auto counted=auditNow();
+    std::printf("stress, readbackGenerations=1: %llu of %llu readbacks mispaired, %llu unsettled, %llu overflowed\n",
+        static_cast<unsigned long long>(mispaired),static_cast<unsigned long long>(reads),
+        static_cast<unsigned long long>(counted.readbackWindow),static_cast<unsigned long long>(counted.readbackOverflow));
+    require(reads>200 && counted.readbackWindow>20);
+    // Only a reader stalled for more than the ring's eight forwards can lose its candidate.
+    require(mispaired<=counted.readbackOverflow);
+    readbackGenerations=false;
+    std::puts("generations: straddled commit, orientation-only pick, out-of-order commit, two-thread stress: passed");
+}
 }
 int main() {
     originals[0]=fakeOriginal;
@@ -268,4 +412,5 @@ int main() {
 
     harnessTests(tracker,device);
     auditTests(tracker,device);
+    generationTests(tracker,device);
 }

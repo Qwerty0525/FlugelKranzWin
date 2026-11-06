@@ -80,6 +80,21 @@ std::array<flight::Pose,64> lastApplied{}; // protected by appliedGate
 std::array<flight::Pose,64> pendingApplied{}; // protected by appliedGate
 std::array<std::array<double,3>,64> pendingPhysical{}; // protected by appliedGate
 std::array<bool,64> forwarding{}; // protected by appliedGate
+// Generations (readbackGenerations flag). The bookkeeping runs either way; the flag picks
+// which readback uses it and whether a commit may move lastApplied backwards.
+// Each forward of a device takes the next generation when it starts. The readback reads
+// the committed generation before calling vrserver and checks it again afterwards, so a
+// forward that starts or commits in between is noticed even when it has already finished.
+// A commit only moves forward: an older forward finishing after a newer one has committed
+// leaves lastApplied alone and marks the device until its next in-order commit.
+bool readbackGenerations=false;
+struct Forward {uint64_t generation=0;flight::Pose transform,body;};
+constexpr size_t forwardRing=8;
+std::array<std::array<Forward,forwardRing>,64> recentForwards{}; // protected by appliedGate
+std::array<uint64_t,64> startedGeneration{}; // protected by appliedGate
+std::array<std::atomic<uint64_t>,64> committedGeneration{}; // written under appliedGate, read lock-free
+std::array<uint32_t,64> forwardsInFlight{}; // protected by appliedGate
+std::array<bool,64> reordered{}; // protected by appliedGate
 // Call sites are classified once each and cached lock-free, so the hot path takes
 // neither a mutex nor the loader lock.
 std::array<std::atomic<void*>,8> physicalCallSites{};
@@ -97,7 +112,7 @@ struct Audit {
     uint64_t commandChanges=0;
     std::array<uint64_t,8> commandInterval{}; // ms: <5 <10 <15 <20 <30 <50 <100 >=100
     uint64_t virtualSteps=0;double virtualStepMax=0,virtualStepSum=0; // metres
-    uint64_t readbackCalls=0,readbackWindow=0,pickedPending=0,pickedPrevious=0,ambiguous=0;
+    uint64_t readbackCalls=0,readbackWindow=0,pickedPending=0,pickedPrevious=0,ambiguous=0,readbackOverflow=0,reorderedCommits=0;
     double readbackResidualMax=0; // metres
     std::array<uint64_t,PathCount> paths{};
     uint64_t pathChanges=0;double pathJumpMax=0,pathJumpDegMax=0;
@@ -158,11 +173,17 @@ bool servesPhysicalPoses(void* returnAddress) {
     return physical;
 }
 
-void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_t count) {
-    CallbackScope scope;
-    const auto caller=_ReturnAddress();
-    rawOriginal(host,prediction,poses,count);
-    if(!poses || !count || !servesPhysicalPoses(caller)) return;
+struct ReadbackTally {uint64_t window=0,pickedPending=0,pickedPrevious=0,ambiguous=0,overflow=0;double residualMax=0;};
+void tallyPick(ReadbackTally& tally,const flight::ReadbackPick& pick,bool different) {
+    tally.window++;
+    (pick.pending?tally.pickedPending:tally.pickedPrevious)++;
+    // Two different candidates score within a factor of two: the pick is a guess.
+    if(different && pick.farther<2*pick.nearer) tally.ambiguous++;
+    tally.residualMax=std::max(tally.residualMax,pick.residual);
+}
+// readbackGenerations=false (45fdf83): while a forward is in progress, the nearer of the
+// committed and the pending transform by position.
+void readbackPaired(vr::TrackedDevicePose_t* poses,uint32_t count,ReadbackTally& tally) {
     std::array<flight::Pose,64> applied,pending;
     std::array<std::array<double,3>,64> physical;
     std::array<bool,64> updating;
@@ -170,26 +191,79 @@ void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_
         std::lock_guard<std::mutex> lock(appliedGate);
         applied=lastApplied;pending=pendingApplied;physical=pendingPhysical;updating=forwarding;
     }
-    uint64_t window=0,pickedPending=0,pickedPrevious=0,ambiguous=0;
-    double residualMax=0;
     for(uint32_t device=0;device<count && device<applied.size();device++) {
         auto transform=applied[device];
         if(updating[device]) {
             const auto pick=flight::readbackPick(poses[device].mDeviceToAbsoluteTracking,applied[device],pending[device],physical[device].data());
             transform=pick.transform;
-            window++;
-            (pick.pending?pickedPending:pickedPrevious)++;
-            // Two different candidates land within a factor of two of the body: the pick is a guess.
-            if(std::memcmp(&applied[device],&pending[device],sizeof(flight::Pose))!=0 && pick.farther<2*pick.nearer) ambiguous++;
-            residualMax=std::max(residualMax,pick.nearer);
+            tallyPick(tally,pick,std::memcmp(&applied[device],&pending[device],sizeof(flight::Pose))!=0);
         }
         flight::removeTransform(poses[device],transform);
     }
+}
+// readbackGenerations=true. A device whose committed generation is the same as before the
+// call, with no forward in flight and no out-of-order finish, gets the committed transform:
+// nothing reached vrserver in between. Any other device gets the best-scoring forward from
+// the one committed before the call to the newest started.
+void readbackByGeneration(vr::TrackedDevicePose_t* poses,uint32_t count,const std::array<uint64_t,64>& committedBefore,ReadbackTally& tally) {
+    struct Unsettled {uint32_t device=0;size_t count=0;bool different=false;std::array<flight::ReadbackCandidate,forwardRing+1> candidates{};};
+    std::array<flight::Pose,64> applied;
+    std::array<Unsettled,8> unsettled; // more at once than this keeps the committed transform
+    size_t unsettledCount=0;
+    const uint32_t devices=std::min<uint32_t>(count,64);
+    {
+        std::lock_guard<std::mutex> lock(appliedGate);
+        for(uint32_t device=0;device<devices;device++) {
+            applied[device]=lastApplied[device];
+            const uint64_t committed=committedGeneration[device].load(std::memory_order_relaxed);
+            if(committed==committedBefore[device] && !forwardsInFlight[device] && !reordered[device]) continue;
+            if(unsettledCount==unsettled.size()) {tally.overflow++;continue;}
+            auto& entry=unsettled[unsettledCount++];
+            entry.device=device;entry.count=0;
+            const uint64_t started=startedGeneration[device];
+            uint64_t from=committedBefore[device];
+            // Overlapping forwards of one device can reach vrserver in either order, so an
+            // older one than the committed may be what it holds: consider every recent one.
+            if(reordered[device] || forwardsInFlight[device]>1) from=started>=forwardRing?started-forwardRing+1:0;
+            else if(started-from>=forwardRing) {from=started-forwardRing+1;tally.overflow++;} // the oldest are gone
+            for(uint64_t generation=from;generation<=started;generation++) {
+                if(generation==0) {entry.candidates[entry.count++]={flight::Pose{},flight::Pose{}};continue;} // before any forward
+                const auto& forward=recentForwards[device][generation%forwardRing];
+                if(forward.generation==generation) entry.candidates[entry.count++]={forward.transform,forward.body};
+            }
+            // Generation 0 has no body of its own; the body hardly moves between updates.
+            if(entry.count>1 && from==0) entry.candidates[0].body=entry.candidates[1].body;
+            if(!entry.count || (entry.count==1 && from==0)) entry.count=0; // nothing to score against
+        }
+    }
+    std::array<bool,64> settled;settled.fill(true);
+    for(size_t i=0;i<unsettledCount;i++) {
+        auto& entry=unsettled[i];
+        if(!entry.count) continue;
+        settled[entry.device]=false;
+        const auto pick=flight::pickReadback(poses[entry.device].mDeviceToAbsoluteTracking,entry.candidates.data(),entry.count);
+        tallyPick(tally,pick,pick.farther>0);
+        flight::removeTransform(poses[entry.device],pick.transform);
+    }
+    for(uint32_t device=0;device<devices;device++) if(settled[device]) flight::removeTransform(poses[device],applied[device]);
+}
+void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_t count) {
+    CallbackScope scope;
+    const auto caller=_ReturnAddress();
+    const bool generations=readbackGenerations;
+    std::array<uint64_t,64> committedBefore;
+    if(generations) for(uint32_t device=0;device<64;device++) committedBefore[device]=committedGeneration[device].load(std::memory_order_acquire);
+    rawOriginal(host,prediction,poses,count);
+    if(!poses || !count || !servesPhysicalPoses(caller)) return;
+    ReadbackTally tally;
+    if(generations) readbackByGeneration(poses,count,committedBefore,tally);
+    else readbackPaired(poses,count,tally);
     if(driverAudit) {
         std::lock_guard<std::mutex> lock(auditGate);
-        audit.readbackCalls++;audit.readbackWindow+=window;
-        audit.pickedPending+=pickedPending;audit.pickedPrevious+=pickedPrevious;audit.ambiguous+=ambiguous;
-        audit.readbackResidualMax=std::max(audit.readbackResidualMax,residualMax);
+        audit.readbackCalls++;audit.readbackWindow+=tally.window;
+        audit.pickedPending+=tally.pickedPending;audit.pickedPrevious+=tally.pickedPrevious;audit.ambiguous+=tally.ambiguous;
+        audit.readbackOverflow+=tally.overflow;
+        audit.readbackResidualMax=std::max(audit.readbackResidualMax,tally.residualMax);
     }
 }
 bool physicalHeadValid=false; // protected by gate
@@ -411,6 +485,7 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
     const bool anchored=device!=0 && classify(device)==2;
     vr::DriverPose_t output;
     flight::Pose transform;
+    uint64_t generation=0;
     {
         std::lock_guard<std::mutex> lock(gate);
         refresh();
@@ -460,6 +535,9 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             pendingApplied[device]=transform;
             pendingPhysical[device]={body.px,body.py,body.pz};
             forwarding[device]=true;
+            generation=++startedGeneration[device];
+            recentForwards[device][generation%forwardRing]={generation,transform,body};
+            forwardsInFlight[device]++;
         }
         if(device==0 && correctFramePose) {
             std::lock_guard<std::mutex> historyLock(historyGate);
@@ -468,9 +546,22 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
     }
     originals[index](host,device,output,size);
     if(device<lastApplied.size()) {
-        std::lock_guard<std::mutex> applied(appliedGate);
-        lastApplied[device]=transform;
-        forwarding[device]=false;
+        bool late=false;
+        {
+            std::lock_guard<std::mutex> applied(appliedGate);
+            forwardsInFlight[device]--;
+            if(generation>committedGeneration[device].load(std::memory_order_relaxed)) {
+                committedGeneration[device].store(generation,std::memory_order_release);
+                reordered[device]=false;
+                lastApplied[device]=transform;
+            } else {
+                // A newer forward of this device committed first.
+                late=true;reordered[device]=true;
+                if(!readbackGenerations) lastApplied[device]=transform; // 45fdf83: the last to finish wins
+            }
+            forwarding[device]=false;
+        }
+        if(late && driverAudit) {std::lock_guard<std::mutex> lock(auditGate);audit.reorderedCommits++;}
     }
 }
 void updated0(void* h,uint32_t d,const vr::DriverPose_t& p,uint32_t n) {updated(0,h,d,p,n);}
@@ -504,9 +595,10 @@ void loadSettings() {
     vr::VRDriverLog()->Log(message);
     driverAudit=readFlag("driverAudit",false);
     fallbackFramePose=readFlag("fallbackFramePose",false);
+    readbackGenerations=readFlag("readbackGenerations",false);
     // One line with every behaviour flag, so a log always says which paths were live.
-    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d driverAudit=%d fallbackFramePose=%d",
-        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0,driverAudit?1:0,fallbackFramePose?1:0);
+    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d driverAudit=%d fallbackFramePose=%d readbackGenerations=%d",
+        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0,driverAudit?1:0,fallbackFramePose?1:0,readbackGenerations?1:0);
     vr::VRDriverLog()->Log(message);
 }
 
@@ -540,7 +632,7 @@ void auditTick(double now) {
         "DriverAudit t=%.0f ipc: refreshMiss=%llu sampleMiss=%llu ownerRevoked=%llu commandInvalid=%llu "
         "command: changes=%llu intervalMs[<5,<10,<15,<20,<30,<50,<100,>=100]=[%llu %llu %llu %llu %llu %llu %llu %llu] "
         "virtualStepM: n=%llu max=%.4f mean=%.4f "
-        "readback: calls=%llu window=%llu pending=%llu previous=%llu ambiguous=%llu residualMaxM=%.4f "
+        "readback: calls=%llu window=%llu pending=%llu previous=%llu ambiguous=%llu residualMaxM=%.4f overflow=%llu reorderedCommits=%llu "
         "submit[forwarded,bypass,held,timed,matched,missed,fallback]=[%llu %llu %llu %llu %llu %llu %llu] pathChanges=%llu jumpMaxM=%.4f jumpMaxDeg=%.3f "
         "headAgeMs: n=%llu max=%.2f mean=%.2f",
         now,
@@ -555,6 +647,7 @@ void auditTick(double now) {
         static_cast<unsigned long long>(a.readbackCalls),static_cast<unsigned long long>(a.readbackWindow),
         static_cast<unsigned long long>(a.pickedPending),static_cast<unsigned long long>(a.pickedPrevious),
         static_cast<unsigned long long>(a.ambiguous),a.readbackResidualMax,
+        static_cast<unsigned long long>(a.readbackOverflow),static_cast<unsigned long long>(a.reorderedCommits),
         static_cast<unsigned long long>(a.paths[PathForwarded]),static_cast<unsigned long long>(a.paths[PathBypass]),
         static_cast<unsigned long long>(a.paths[PathHeld]),static_cast<unsigned long long>(a.paths[PathTimed]),
         static_cast<unsigned long long>(a.paths[PathMatched]),static_cast<unsigned long long>(a.paths[PathMissed]),
@@ -658,6 +751,9 @@ public:
             std::lock_guard<std::mutex> applied(appliedGate);
             lastApplied.fill(flight::Pose{});pendingApplied.fill(flight::Pose{});
             pendingPhysical.fill({});forwarding.fill(false);
+            for(auto& forwards:recentForwards) forwards.fill(Forward{});
+            startedGeneration.fill(0);forwardsInFlight.fill(0);reordered.fill(false);
+            for(auto& committed:committedGeneration) committed.store(0);
         }
         for(auto& site:physicalCallSites) site.store(nullptr);
         for(auto& site:flownCallSites) site.store(nullptr);

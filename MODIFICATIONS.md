@@ -210,6 +210,48 @@ empty-history case through `lastApplied`, and that nothing changes
 without `correctFramePose`. All four native test suites pass. Not run on
 hardware; whether it removes the black borders is not known yet.
 
+## 2026-11-06 — Readback generations (opt-in)
+
+Affected files: `native/driver/Driver.cpp`, `native/driver/FrameHistory.h`,
+`native/driver/resources/settings/default.vrsettings`,
+`native/driver/DriverPathTests.cpp`, `native/driver/FrameTests.cpp`,
+`native/driver/README.md`.
+
+The readback pairing from 2026-11-01 still had three holes. A forward that
+started and committed while the solver's readback was inside vrserver was
+not seen as in progress, so the new transform was removed from the old pose.
+Picking by position alone was a coin toss for head-pilot turns, which rotate
+about the HMD and leave its position unchanged. And when two forwards of
+one device overlapped and finished in the other order, the committed
+transform went back to the older one.
+
+With the new flag `readbackGenerations=true` (default `false`) every
+forward of a device gets a generation number, and the last eight are kept
+with their transform and physical pose. The readback compares the committed
+generation before and after calling vrserver. If nothing changed and nothing
+is in flight it uses the committed transform; otherwise it scores every
+candidate from the generation committed before the call to the newest, by
+position and orientation. A commit only moves forward; an older forward
+finishing late leaves the committed transform alone and marks the device
+until its next in-order commit. `DriverAudit` gains `overflow` (more than
+eight forwards during one readback) and `reorderedCommits`.
+
+Whether vrserver applies a forwarded pose before the call returns has not
+been tested. If it does not, comparing generations at the hook boundary is
+not enough.
+
+### Testing
+
+`driver_path_tests` reproduces the straddled commit (wrong with the flag
+off, right with it on), a 1.4° turn about the device that only orientation
+separates, and an out-of-order commit with each flag value. A two-thread
+stress run (about 2 kHz pose updates with a new transform every update,
+about 1 kHz readbacks with a 0.2 ms gap added inside the fake vrserver call)
+mispaired roughly 330 of 836 readbacks with the flag off and none with it
+on, over five runs. `frame_tests` covers the candidate scoring. All four
+native test suites pass. Not run on hardware; SlimeVR and rebocap should
+both be checked before the default changes.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
