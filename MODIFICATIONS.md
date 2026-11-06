@@ -149,6 +149,35 @@ and the app's shared memory and IPC mutex, so `driver_path_tests` now runs
 while it holds the mutex, invalid command, dead client) and the readback
 caller check through the production code. All four native test suites pass.
 
+## 2026-11-06 — DriverAudit counters
+
+Affected files: `native/driver/Driver.cpp`, `native/driver/FrameHistory.h`,
+`native/driver/resources/settings/default.vrsettings`,
+`native/driver/DriverPathTests.cpp`, `native/driver/ObserverTests.cpp`,
+`native/driver/README.md`.
+
+A new flag, `driverAudit` (default `true` in the shipped settings, `false`
+when missing), adds one `DriverAudit` line per second to `vrserver.txt`.
+It only has values the existing `FrameAudit` line lacks: IPC misses, owner
+revocations and invalid commands counted separately, command changes and
+their intervals, the HMD's virtual step per update, how the readback picked
+a transform while a pose was in flight, each layer's correction path with
+the pose jump at path changes, and the HMD sample age measured on the
+steady clock. Ten seconds after start it also reports once if the
+SubmitLayer hook was never installed, which means every layer goes out
+flown. The line is formatted and logged from `RunFrame` after the
+pose-update lock is released; the hot paths only add to counters under a
+small lock of their own. Pose and frame output do not change. Set
+`driverAudit` to `false` to remove the line and the counting.
+
+### Testing
+
+`driver_path_tests` checks each counter through the real `refresh()`,
+`updated()` and readback code, the line's contents, the per-second reset,
+and the one-time Direct Mode report; `observer_tests` checks that each
+correction path is counted. All four native test suites pass. Not run on
+hardware.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

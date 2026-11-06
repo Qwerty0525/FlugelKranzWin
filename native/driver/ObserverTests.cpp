@@ -33,6 +33,7 @@ int main() {
     submitOriginal=forwardedSubmit;
     // Logging disabled here: verifies the production forwarding path in isolation.
     nextFrameLog=std::numeric_limits<uint64_t>::max();
+    driverAudit=true; // counts each layer's path; the line itself is logged from RunFrame
     observedSubmit(expectedSelf,eyes);
     require(forwarded==1 && inFlight==0);
     require(std::memcmp(eyes,expectedCopy,sizeof(eyes))==0);
@@ -99,5 +100,9 @@ int main() {
     require(forwarded==8 && inFlight==0);
     require(heldLayers.load()==heldBefore+1);
     require(std::memcmp(eyes,originalCopy,sizeof(eyes))==0);
+    // Every layer above took a different path once, in this order: forwarded (correction
+    // off), matched, missed, timed, identity bypass, held.
+    for(int path=0;path<PathCount;path++) require(audit.paths[path]==1);
+    require(audit.pathChanges==5 && audit.pathJumpMax>0);
     std::puts("Observer forwards original layers and ignores unavailable/unsupported interfaces: passed");
 }

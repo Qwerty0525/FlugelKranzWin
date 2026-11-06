@@ -83,6 +83,50 @@ std::array<std::atomic<void*>,8> physicalCallSites{};
 std::array<std::atomic<void*>,8> flownCallSites{};
 std::mutex callSiteGate; // only while classifying a call site seen for the first time
 
+// DriverAudit (driverAudit flag): counters the 1 Hz FrameAudit line does not have.
+// Hot paths add to them under auditGate, which is a leaf: nothing else is locked while
+// it is held. RunFrame copies and resets them after releasing `gate`, then formats and
+// logs outside every lock.
+bool driverAudit=false;
+enum SubmitPath {PathForwarded,PathBypass,PathHeld,PathTimed,PathMatched,PathMissed,PathCount};
+struct Audit {
+    uint64_t refreshMiss=0,sampleMiss=0,ownerRevoked=0,commandInvalid=0;
+    uint64_t commandChanges=0;
+    std::array<uint64_t,8> commandInterval{}; // ms: <5 <10 <15 <20 <30 <50 <100 >=100
+    uint64_t virtualSteps=0;double virtualStepMax=0,virtualStepSum=0; // metres
+    uint64_t readbackCalls=0,readbackWindow=0,pickedPending=0,pickedPrevious=0,ambiguous=0;
+    double readbackResidualMax=0; // metres
+    std::array<uint64_t,PathCount> paths{};
+    uint64_t pathChanges=0;double pathJumpMax=0,pathJumpDegMax=0;
+    uint64_t headAges=0;double headAgeMax=0,headAgeSum=0; // ms, steady clock
+};
+std::mutex auditGate;
+Audit audit; // protected by auditGate
+// Kept across the per-second resets.
+double lastCommandChange=0; // protected by auditGate
+int lastSubmitPath=-1; // protected by auditGate
+vr::HmdMatrix34_t lastSubmittedPose{}; // protected by auditGate
+double nextAudit=0,auditStart=0; // protected by auditGate
+bool directModeReported=false; // protected by auditGate
+std::atomic<double> lastHeadUpdate{0}; // steady-clock ms of the last HMD pose update
+flight::Pose lastHeadCommand; // protected by gate
+bool lastHeadCommandValid=false; // protected by gate
+const double commandIntervalEdges[]={5,10,15,20,30,50,100};
+size_t intervalBucket(double ms) {
+    size_t bucket=0;
+    while(bucket<std::size(commandIntervalEdges) && ms>=commandIntervalEdges[bucket]) bucket++;
+    return bucket;
+}
+void poseJump(const vr::HmdMatrix34_t& a,const vr::HmdMatrix34_t& b,double& metres,double& degrees) {
+    double position=0,trace=0;
+    for(int row=0;row<3;row++) {
+        const double d=a.m[row][3]-b.m[row][3];position+=d*d;
+        for(int k=0;k<3;k++) trace+=static_cast<double>(a.m[k][row])*b.m[k][row];
+    }
+    metres=std::sqrt(position);
+    degrees=std::acos(std::clamp((trace-1)/2,-1.0,1.0))*180/3.14159265358979323846;
+}
+
 bool servesPhysicalPoses(void* returnAddress) {
     for(const auto& site:physicalCallSites) if(site.load(std::memory_order_relaxed)==returnAddress) return true;
     for(const auto& site:flownCallSites) if(site.load(std::memory_order_relaxed)==returnAddress) return false;
@@ -123,11 +167,26 @@ void rawPoses(void* host,float prediction,vr::TrackedDevicePose_t* poses,uint32_
         std::lock_guard<std::mutex> lock(appliedGate);
         applied=lastApplied;pending=pendingApplied;physical=pendingPhysical;updating=forwarding;
     }
+    uint64_t window=0,pickedPending=0,pickedPrevious=0,ambiguous=0;
+    double residualMax=0;
     for(uint32_t device=0;device<count && device<applied.size();device++) {
-        const auto transform=updating[device]
-            ?flight::readbackTransform(poses[device].mDeviceToAbsoluteTracking,applied[device],pending[device],physical[device].data())
-            :applied[device];
+        auto transform=applied[device];
+        if(updating[device]) {
+            const auto pick=flight::readbackPick(poses[device].mDeviceToAbsoluteTracking,applied[device],pending[device],physical[device].data());
+            transform=pick.transform;
+            window++;
+            (pick.pending?pickedPending:pickedPrevious)++;
+            // Two different candidates land within a factor of two of the body: the pick is a guess.
+            if(std::memcmp(&applied[device],&pending[device],sizeof(flight::Pose))!=0 && pick.farther<2*pick.nearer) ambiguous++;
+            residualMax=std::max(residualMax,pick.nearer);
+        }
         flight::removeTransform(poses[device],transform);
+    }
+    if(driverAudit) {
+        std::lock_guard<std::mutex> lock(auditGate);
+        audit.readbackCalls++;audit.readbackWindow+=window;
+        audit.pickedPending+=pickedPending;audit.pickedPrevious+=pickedPrevious;audit.ambiguous+=ambiguous;
+        audit.readbackResidualMax=std::max(audit.readbackResidualMax,residualMax);
     }
 }
 bool physicalHeadValid=false; // protected by gate
@@ -213,6 +272,22 @@ void observedSubmit(void* self,const Layer(&eyes)[2]) {
     submittedLayers.fetch_add(1);
     if(correctFramePose && !identityBypass && !match.found) missedLayers.fetch_add(1);
     if(match.held && match.found) heldLayers.fetch_add(1);
+    if(driverAudit) {
+        const SubmitPath path=!correctFramePose?PathForwarded:identityBypass?PathBypass:!match.found?PathMissed
+            :match.held?PathHeld:usedTimed?PathTimed:PathMatched;
+        const auto& submitted=match.found?corrected[0].mHmdPose:eyes[0].mHmdPose;
+        const double submitNow=frameTimeMs(),head=lastHeadUpdate.load();
+        std::lock_guard<std::mutex> lock(auditGate);
+        audit.paths[path]++;
+        if(lastSubmitPath>=0 && lastSubmitPath!=path) {
+            // Includes the head's own motion since the previous layer (one frame).
+            double metres,degrees;poseJump(submitted,lastSubmittedPose,metres,degrees);
+            audit.pathChanges++;
+            audit.pathJumpMax=std::max(audit.pathJumpMax,metres);audit.pathJumpDegMax=std::max(audit.pathJumpDegMax,degrees);
+        }
+        lastSubmitPath=path;lastSubmittedPose=submitted;
+        if(head>0 && submitNow>=head) {audit.headAges++;audit.headAgeSum+=submitNow-head;audit.headAgeMax=std::max(audit.headAgeMax,submitNow-head);}
+    }
     if(log) {
         char message[1400];
         std::snprintf(message,sizeof(message),
@@ -280,18 +355,33 @@ bool enter(DWORD timeout=2) {
 // (a .NET GC, for example). A miss keeps the previous command and skips one sample.
 void refresh() {
     auto now=GetTickCount64();
+    const auto before=command;
+    bool missed=false,revoked=false,invalid=false;
     if (state && enter(0)) {
         state->driverHeartbeat=now;
         if(state->owner && (now<state->clientHeartbeat || now-state->clientHeartbeat>=500)) {
-            state->owner=0;state->enabled=0;
+            state->owner=0;state->enabled=0;revoked=true;
         }
-        if(state->owner && state->enabled && now>=state->clientHeartbeat
-            && now-state->clientHeartbeat<500 && flight::valid(state->command)) {
+        const bool live=state->owner && state->enabled && now>=state->clientHeartbeat && now-state->clientHeartbeat<500;
+        // Counted apart from revocation, OFF and stale heartbeats, which share the else.
+        invalid=live && !flight::valid(state->command);
+        if(live && !invalid) {
             command=state->command; lastHeartbeat=state->clientHeartbeat;
         } else { command={}; lastHeartbeat=0; }
         ReleaseMutex(ipcMutex);
-    }
+    } else missed=state!=nullptr;
     if(!lastHeartbeat || now-lastHeartbeat>=500) command={};
+    if(!driverAudit) return;
+    const bool changed=std::memcmp(&before,&command,sizeof(command))!=0;
+    if(!missed && !revoked && !invalid && !changed) return;
+    const double changedAt=changed?frameTimeMs():0;
+    std::lock_guard<std::mutex> lock(auditGate);
+    audit.refreshMiss+=missed;audit.ownerRevoked+=revoked;audit.commandInvalid+=invalid;
+    if(changed) {
+        audit.commandChanges++;
+        if(lastCommandChange>0) audit.commandInterval[intervalBucket(changedAt-lastCommandChange)]++;
+        lastCommandChange=changedAt;
+    }
 }
 void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,uint32_t size) {
     CallbackScope scope;
@@ -304,16 +394,36 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
     {
         std::lock_guard<std::mutex> lock(gate);
         refresh();
-        if(state && device<64 && enter(0)) {
-            auto& sample=state->samples[device];
-            sample.pose=flight::physical(input);
-            sample.flags=(input.deviceIsConnected?1u:0u)|(input.poseIsValid?2u:0u);
-            sample.timestamp=GetTickCount64();
-            ReleaseMutex(ipcMutex);
+        bool sampleMissed=false;
+        if(state && device<64) {
+            if(enter(0)) {
+                auto& sample=state->samples[device];
+                sample.pose=flight::physical(input);
+                sample.flags=(input.deviceIsConnected?1u:0u)|(input.poseIsValid?2u:0u);
+                sample.timestamp=GetTickCount64();
+                ReleaseMutex(ipcMutex);
+            } else sampleMissed=true;
         }
+        double virtualStep=-1;
         if(device==0 && input.poseIsValid && input.deviceIsConnected) {
             auto head=flight::physical(input);
-            if(flight::valid(head)) {physicalHead[0]=head.px;physicalHead[1]=head.py;physicalHead[2]=head.pz;physicalHeadValid=true;}
+            if(flight::valid(head)) {
+                physicalHead[0]=head.px;physicalHead[1]=head.py;physicalHead[2]=head.pz;physicalHeadValid=true;
+                if(driverAudit) {
+                    // How far this update's command moves the head relative to the last one.
+                    double now[3],last[3];
+                    flight::transformPoint(command,physicalHead,now);
+                    flight::transformPoint(lastHeadCommandValid?lastHeadCommand:command,physicalHead,last);
+                    virtualStep=std::sqrt((now[0]-last[0])*(now[0]-last[0])+(now[1]-last[1])*(now[1]-last[1])+(now[2]-last[2])*(now[2]-last[2]));
+                    lastHeadCommand=command;lastHeadCommandValid=true;
+                }
+            }
+        }
+        if(device==0) lastHeadUpdate.store(received);
+        if(driverAudit && (sampleMissed || virtualStep>=0)) {
+            std::lock_guard<std::mutex> lock(auditGate);
+            audit.sampleMiss+=sampleMissed;
+            if(virtualStep>=0) {audit.virtualSteps++;audit.virtualStepSum+=virtualStep;audit.virtualStepMax=std::max(audit.virtualStepMax,virtualStep);}
         }
         transform=command;
         if(anchored) {
@@ -372,10 +482,65 @@ void loadSettings() {
     if(settingsError==vr::VRSettingsError_None) std::memcpy(physicalPoseDrivers,drivers,sizeof(drivers));
     std::snprintf(message,sizeof(message),"FlugelKranz: physical raw poses for drivers: '%s'",physicalPoseDrivers);
     vr::VRDriverLog()->Log(message);
+    driverAudit=readFlag("driverAudit",false);
     // One line with every behaviour flag, so a log always says which paths were live.
-    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d",
-        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0);
+    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d driverAudit=%d",
+        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0,driverAudit?1:0);
     vr::VRDriverLog()->Log(message);
+}
+
+// Called from RunFrame after `gate` is released. Logs at most once per second.
+void auditTick(double now) {
+    if(!driverAudit) return;
+    Audit snapshot;
+    bool checkDirectMode=false;
+    {
+        std::lock_guard<std::mutex> lock(auditGate);
+        if(now<nextAudit) return;
+        nextAudit=now+1000;
+        snapshot=audit;audit=Audit{};
+        // The HMD asks for its Direct Mode component when it activates; give it 10 s.
+        if(!directModeReported && auditStart>0 && now-auditStart>=10000) {directModeReported=true;checkDirectMode=true;}
+    }
+    if(checkDirectMode && (observeFrames || correctFramePose)) {
+        bool component=false,submit=false;
+        {
+            std::lock_guard<std::mutex> lock(observerGate);
+            component=componentTarget!=nullptr;submit=submitTarget!=nullptr;
+        }
+        // A missing hook here means every layer is forwarded flown, whatever correctFramePose says.
+        if(!submit) vr::VRDriverLog()->Log(component
+            ?"DriverAudit: the HMD has not offered IVRDriverDirectModeComponent_009 after 10 s; render correction OFF"
+            :"DriverAudit: no HMD GetComponent observer after 10 s (HMD registered before this driver?); render correction OFF");
+    }
+    const auto& a=snapshot;
+    char message[1024];
+    const int length=std::snprintf(message,sizeof(message),
+        "DriverAudit t=%.0f ipc: refreshMiss=%llu sampleMiss=%llu ownerRevoked=%llu commandInvalid=%llu "
+        "command: changes=%llu intervalMs[<5,<10,<15,<20,<30,<50,<100,>=100]=[%llu %llu %llu %llu %llu %llu %llu %llu] "
+        "virtualStepM: n=%llu max=%.4f mean=%.4f "
+        "readback: calls=%llu window=%llu pending=%llu previous=%llu ambiguous=%llu residualMaxM=%.4f "
+        "submit[forwarded,bypass,held,timed,matched,missed]=[%llu %llu %llu %llu %llu %llu] pathChanges=%llu jumpMaxM=%.4f jumpMaxDeg=%.3f "
+        "headAgeMs: n=%llu max=%.2f mean=%.2f",
+        now,
+        static_cast<unsigned long long>(a.refreshMiss),static_cast<unsigned long long>(a.sampleMiss),
+        static_cast<unsigned long long>(a.ownerRevoked),static_cast<unsigned long long>(a.commandInvalid),
+        static_cast<unsigned long long>(a.commandChanges),
+        static_cast<unsigned long long>(a.commandInterval[0]),static_cast<unsigned long long>(a.commandInterval[1]),
+        static_cast<unsigned long long>(a.commandInterval[2]),static_cast<unsigned long long>(a.commandInterval[3]),
+        static_cast<unsigned long long>(a.commandInterval[4]),static_cast<unsigned long long>(a.commandInterval[5]),
+        static_cast<unsigned long long>(a.commandInterval[6]),static_cast<unsigned long long>(a.commandInterval[7]),
+        static_cast<unsigned long long>(a.virtualSteps),a.virtualStepMax,a.virtualSteps?a.virtualStepSum/a.virtualSteps:0.0,
+        static_cast<unsigned long long>(a.readbackCalls),static_cast<unsigned long long>(a.readbackWindow),
+        static_cast<unsigned long long>(a.pickedPending),static_cast<unsigned long long>(a.pickedPrevious),
+        static_cast<unsigned long long>(a.ambiguous),a.readbackResidualMax,
+        static_cast<unsigned long long>(a.paths[PathForwarded]),static_cast<unsigned long long>(a.paths[PathBypass]),
+        static_cast<unsigned long long>(a.paths[PathHeld]),static_cast<unsigned long long>(a.paths[PathTimed]),
+        static_cast<unsigned long long>(a.paths[PathMatched]),static_cast<unsigned long long>(a.paths[PathMissed]),
+        static_cast<unsigned long long>(a.pathChanges),a.pathJumpMax,a.pathJumpDegMax,
+        static_cast<unsigned long long>(a.headAges),a.headAgeMax,a.headAges?a.headAgeSum/a.headAges:0.0);
+    vr::VRDriverLog()->Log(message);
+    if(length<0 || length>=static_cast<int>(sizeof(message))) vr::VRDriverLog()->Log("DriverAudit: previous line truncated");
 }
 
 class Provider final : public vr::IServerTrackedDeviceProvider {
@@ -397,6 +562,10 @@ public:
         observerStopping=false;
         loadSettings();
         propertiesReady=true;
+        {
+            std::lock_guard<std::mutex> lock(auditGate);
+            auditStart=frameTimeMs();nextAudit=auditStart+1000;
+        }
         const char* versions[]={"IVRServerDriverHost_006","IVRServerDriverHost_005"};
         void* detours[]={reinterpret_cast<void*>(updated0),reinterpret_cast<void*>(updated1)};
         void* addedDetours[]={reinterpret_cast<void*>(added0),reinterpret_cast<void*>(added1)};
@@ -472,10 +641,18 @@ public:
         for(auto& site:flownCallSites) site.store(nullptr);
         propertiesReady=false;
         frameHistory.clear();
+        lastHeadCommandValid=false;lastHeadUpdate.store(0);
+        {
+            std::lock_guard<std::mutex> audited(auditGate);
+            audit=Audit{};lastCommandChange=0;lastSubmitPath=-1;nextAudit=auditStart=0;directModeReported=false;
+        }
         VR_CLEANUP_SERVER_DRIVER_CONTEXT();
     }
     const char* const* GetInterfaceVersions() override {return vr::k_InterfaceVersions;}
-    void RunFrame() override {std::lock_guard<std::mutex> lock(gate);refresh();}
+    void RunFrame() override {
+        {std::lock_guard<std::mutex> lock(gate);refresh();}
+        auditTick(frameTimeMs());
+    }
     bool ShouldBlockStandbyMode() override {return false;}
     void EnterStandby() override {}
     void LeaveStandby() override {}

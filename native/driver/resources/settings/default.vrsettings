@@ -4,6 +4,7 @@
     "observeFrames": true,
     "correctFramePose": true,
     "timeBasedFramePose": true,
+    "driverAudit": true,
     "hmdAnchoredTrackingSystems": "",
     "physicalPoseDrivers": "driver_slimevr.dll,driver_rebocap.dll"
   }

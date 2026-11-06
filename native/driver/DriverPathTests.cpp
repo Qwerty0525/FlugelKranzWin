@@ -61,7 +61,7 @@ void harnessTests(const vr::DriverPose_t& tracker,uint32_t device) {
     // Settings: shipped defaults, a changed flag, and missing keys keeping the fallbacks.
     harness::shippedDefaults();
     loadSettings();
-    require(context.log.contains("FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1"));
+    require(context.log.contains("FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1 driverAudit=1"));
     require(std::strcmp(physicalPoseDrivers,"driver_slimevr.dll,driver_rebocap.dll")==0);
     context.settings.bools["timeBasedFramePose"]=false;
     context.log.clear();
@@ -70,7 +70,7 @@ void harnessTests(const vr::DriverPose_t& tracker,uint32_t device) {
     context.settings.bools.clear();context.settings.strings.clear();
     context.log.clear();
     loadSettings();
-    require(context.log.contains("FlugelKranz flags: observeFrames=0 correctFramePose=0 timeBasedFramePose=0"));
+    require(context.log.contains("FlugelKranz flags: observeFrames=0 correctFramePose=0 timeBasedFramePose=0 driverAudit=0"));
     require(std::strcmp(physicalPoseDrivers,"driver_slimevr.dll,driver_rebocap.dll")==0);
     observeFrames=correctFramePose=timeBasedFramePose=false;
 
@@ -127,6 +127,98 @@ void harnessTests(const vr::DriverPose_t& tracker,uint32_t device) {
     require(std::memcmp(&poses[device],&serverPoses[device],sizeof(poses[device]))==0);
     std::puts("harness: settings and flags line, device properties, IPC take/miss/invalid/revoke, readback caller: passed");
 }
+
+vr::TrackedDevicePose_t readbackDuringForward{};
+uint32_t readbackDevice=0;
+void readingOriginal(void* host,uint32_t device,const vr::DriverPose_t& pose,uint32_t size) {
+    // A solver polls while this pose is on its way: vrserver still holds the previous one.
+    std::array<vr::TrackedDevicePose_t,16> poses{};
+    rawPoses(expectedHost,0,poses.data(),static_cast<uint32_t>(poses.size()));
+    readbackDuringForward=poses[readbackDevice];
+    storingOriginal(host,device,pose,size);
+}
+Audit auditNow() {std::lock_guard<std::mutex> lock(auditGate);return audit;}
+
+// P1a: DriverAudit counters and the 1 Hz line.
+void auditTests(const vr::DriverPose_t& tracker,uint32_t device) {
+    auto& context=harness::context();
+    const flight::Pose a{0,std::sqrt(0.5),0,std::sqrt(0.5),3,-1,2},b{0,0,0,1,1,0,0};
+    require(intervalBucket(4.9)==0 && intervalBucket(5)==1 && intervalBucket(99)==6 && intervalBucket(100)==7);
+
+    // Off: nothing is counted.
+    driverAudit=false;
+    {std::lock_guard<std::mutex> lock(auditGate);audit=Audit{};lastCommandChange=0;}
+    {harness::AppHoldsIpc paused;updated(0,expectedHost,device,tracker,sizeof(tracker));}
+    require(auditNow().refreshMiss==0 && auditNow().sampleMiss==0);
+
+    driverAudit=true;
+    harness::publish(b);updated(0,expectedHost,device,tracker,sizeof(tracker));
+    require(auditNow().commandChanges==1);
+    harness::publish(a);updated(0,expectedHost,device,tracker,sizeof(tracker));
+    {
+        const auto counted=auditNow();
+        uint64_t intervals=0;for(auto n:counted.commandInterval) intervals+=n;
+        require(counted.commandChanges==2 && intervals==1);
+    }
+    {harness::AppHoldsIpc paused;updated(0,expectedHost,device,tracker,sizeof(tracker));}
+    require(auditNow().refreshMiss==1 && auditNow().sampleMiss==1);
+    // An invalid command is told apart from a dead client.
+    harness::publish(flight::Pose{0,0,0,2,0,0,0});
+    {std::lock_guard<std::mutex> lock(gate);refresh();}
+    require(auditNow().commandInvalid==1 && auditNow().ownerRevoked==0);
+    harness::publish(a);
+    WaitForSingleObject(ipcMutex,INFINITE);state->clientHeartbeat=GetTickCount64()-600;ReleaseMutex(ipcMutex);
+    {std::lock_guard<std::mutex> lock(gate);refresh();}
+    require(auditNow().commandInvalid==1 && auditNow().ownerRevoked==1);
+
+    // The HMD's virtual step between consecutive commands.
+    harness::publish(a);updated(0,expectedHost,0,tracker,sizeof(tracker));
+    harness::publish(b);updated(0,expectedHost,0,tracker,sizeof(tracker));
+    {
+        const auto head=flight::physical(tracker);
+        const double h[3]{head.px,head.py,head.pz};double viaA[3],viaB[3];
+        flight::transformPoint(a,h,viaA);flight::transformPoint(b,h,viaB);
+        const double expected=std::sqrt((viaA[0]-viaB[0])*(viaA[0]-viaB[0])+(viaA[1]-viaB[1])*(viaA[1]-viaB[1])+(viaA[2]-viaB[2])*(viaA[2]-viaB[2]));
+        const auto counted=auditNow();
+        require(counted.virtualSteps==2 && std::abs(counted.virtualStepMax-expected)<1e-9);
+    }
+
+    // A readback while this device's pose is being forwarded picks the previous transform.
+    harness::servePhysicalPosesToThisProcess();
+    require(same(lastApplied[device],a));
+    originals[0]=readingOriginal;readbackDevice=device;
+    updated(0,expectedHost,device,tracker,sizeof(tracker)); // forwards b
+    originals[0]=storingOriginal;
+    require(positionError(readbackDuringForward.mDeviceToAbsoluteTracking,flight::matrix(flight::physical(tracker)))<1e-5);
+    {
+        const auto counted=auditNow();
+        require(counted.readbackCalls==1 && counted.readbackWindow==1 && counted.pickedPrevious==1
+            && counted.pickedPending==0 && counted.ambiguous==0 && counted.readbackResidualMax<1e-5);
+    }
+
+    // The line: emitted at most once per second, outside the locks, and the counters reset.
+    context.log.clear();
+    {std::lock_guard<std::mutex> lock(auditGate);nextAudit=0;}
+    auditTick(frameTimeMs());
+    const auto line=context.log.last("DriverAudit t=");
+    require(line.find("refreshMiss=1 sampleMiss=1 ownerRevoked=1 commandInvalid=1")!=std::string::npos);
+    require(line.find("readback: calls=1 window=1 pending=0 previous=1 ambiguous=0")!=std::string::npos);
+    require(!context.log.contains("truncated"));
+    require(auditNow().commandChanges==0 && auditNow().readbackCalls==0);
+    auditTick(frameTimeMs());
+    require(context.log.count("DriverAudit t=")==1);
+
+    // Direct Mode: reported once, from the missing SubmitLayer hook, 10 s after Init.
+    observeFrames=true;
+    {std::lock_guard<std::mutex> lock(auditGate);nextAudit=0;auditStart=frameTimeMs()-11000;directModeReported=false;}
+    auditTick(frameTimeMs());
+    require(context.log.count("render correction OFF")==1 && context.log.contains("no HMD GetComponent observer"));
+    {std::lock_guard<std::mutex> lock(auditGate);nextAudit=0;}
+    auditTick(frameTimeMs());
+    require(context.log.count("render correction OFF")==1);
+    observeFrames=false;
+    std::puts("audit: off, command changes/intervals, IPC misses, invalid vs revoked, virtual step, readback window, line and reset, Direct Mode report: passed");
+}
 }
 int main() {
     originals[0]=fakeOriginal;
@@ -175,4 +267,5 @@ int main() {
     std::puts("pose-update detour: identity pass-through, flight, pending/commit order, stale command, unknown ABI: passed");
 
     harnessTests(tracker,device);
+    auditTests(tracker,device);
 }

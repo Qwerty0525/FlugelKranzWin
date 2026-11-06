@@ -88,6 +88,21 @@ HMD の登録と `GetComponent` を観測し、`IVRDriverDirectModeComponent_009
 | `matchError=-1` | 時刻ベース方式では姿勢照合誤差を計算しない |
 | `layers` / `missed` / `held` | 前の記録以降のレイヤー数 / 未補正数 / 保持中の経路の使用数 |
 
+`driverAudit=true`（ソース既定値）では、`RunFrame` が `gate` を解放した後に毎秒 1 行の `DriverAudit` を記録します。FrameAudit にない値だけを持ちます。値は前の行以降の集計です。
+
+| 項目 | 意味 |
+| --- | --- |
+| `refreshMiss` / `sampleMiss` | IPC ミューテックスを取れず、前の指令を維持した回数 / 物理サンプルを書かなかった回数 |
+| `ownerRevoked` / `commandInvalid` | ハートビート切れで所有権を外した回数 / 生きたクライアントの指令が `valid()` を満たさなかった回数 |
+| `command: changes` / `intervalMs[...]` | 採用した指令が変わった回数と、その間隔（steady clock）のヒストグラム |
+| `virtualStepM` | HMD 更新ごとの、指令の変化による仮想頭部位置の移動量 |
+| `readback: calls/window/pending/previous/ambiguous/residualMaxM` | 物理姿勢の読み戻し回数、転送中の機器に当たった回数、選んだ候補、2 候補の距離比が 2 未満だった回数、選んだ候補の残差の最大値 |
+| `submit[forwarded,bypass,held,timed,matched,missed]` | レイヤーごとの経路の回数（`forwarded` は補正無効） |
+| `pathChanges` / `jumpMaxM` / `jumpMaxDeg` | 経路が変わった回数と、そのとき前のレイヤーから渡した HMD 姿勢が動いた量の最大値（1 フレーム分の頭部運動を含む） |
+| `headAgeMs` | SubmitLayer 時点の最新 HMD 更新の経過時間（steady clock） |
+
+起動 10 秒後に SubmitLayer フックがなければ、`DriverAudit: ... render correction OFF` を一度記録します。このとき全レイヤーは飛行後の姿勢のまま転送されます。
+
 複数レイヤーが 1 フレームに属する場合があるため、これらを HMD のフレーム数として解釈しないでください。未対応の Direct Mode バージョン、またはフック導入前に登録された HMD では記録されない場合があります。`loadPriority=100` は HMD 登録を早期に観測するための設定です。
 
 2026-09-13、Quest 2 + Touch / VD で時刻ベース方式（`5b41cab`）による黒い縁・暗転・同時回転時のジッター改善の報告を得ました。その後、視界のふらつきと酔いやすさの追加報告があり、原因は未確定です。表示品質の問題は調査継続中です。他の HMD、ゲーム、FBT 構成の系統的な検証は未実施です。
