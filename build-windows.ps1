@@ -1,4 +1,5 @@
-param([string]$Dotnet = 'dotnet', [string]$CMake = 'cmake')
+# -TestBuild ships driverAudit=true (DriverAudit lines for flight / compass testing); a release ships false.
+param([string]$Dotnet = 'dotnet', [string]$CMake = 'cmake', [switch]$TestBuild)
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
@@ -13,6 +14,13 @@ try {
     Copy-Item -LiteralPath 'artifacts/driver-build/Release/driver_flugelkranz.dll' -Destination (Join-Path $driverPath 'bin/win64')
     Copy-Item -LiteralPath 'native/driver/driver.vrdrivermanifest' -Destination $driverPath
     Copy-Item -LiteralPath 'native/driver/resources' -Destination $driverPath -Recurse -Force
+    $settingsPath = Join-Path $driverPath 'resources/settings/default.vrsettings'
+    $audit = if ($TestBuild) { 'true' } else { 'false' }
+    $settingsText = [IO.File]::ReadAllText($settingsPath)
+    if ($settingsText -notmatch '"driverAudit"\s*:\s*(true|false)') { throw 'driverAudit not found in default.vrsettings' }
+    $settingsText = [regex]::Replace($settingsText, '("driverAudit"\s*:\s*)(true|false)', ('${1}' + $audit))
+    [IO.File]::WriteAllText($settingsPath, $settingsText)
+    Write-Host ("driverAudit = $audit (" + $(if ($TestBuild) { 'test build' } else { 'release' }) + ')')
     Copy-Item -LiteralPath 'native/driver/vendor/openvr/LICENSE' -Destination (Join-Path $driverPath 'LICENSE-OpenVR')
     Copy-Item -LiteralPath 'native/driver/vendor/minhook/LICENSE.txt' -Destination (Join-Path $driverPath 'LICENSE-MinHook.txt')
     Copy-Item -LiteralPath 'install-driver.ps1' -Destination 'artifacts/windows-x64'

@@ -716,6 +716,25 @@ disable it, 3.75 s of them do; the redraw cap is now 10 a second.
 `CompassMathTests`: the placement test above. 247 C# tests, 244 pass (the 3
 known `[AvaloniaFact]` discovery errors). Not yet seen in VR.
 
+## 2026-11-06 — Release and test builds
+
+Affected files: `build-windows.ps1`, `WINDOWS.md`.
+
+`build-windows.ps1` gains a `-TestBuild` switch. After copying the driver's
+resources it writes `driverAudit` into the deployed
+`driver/flugelkranz/resources/settings/default.vrsettings`: `false` for a
+normal (release) build, `true` for a test build used for flight and compass
+testing, and prints which one it wrote. Only that value changes; the rest of
+the file is the shipped one. The source file and the app's Reset keep the
+release value (`false`). As before, every build overwrites the deployed file,
+so a value changed with the app's **Detailed diagnostics** checkbox is reset
+by the next build.
+
+### Testing
+
+Built with `-TestBuild` into `artifacts/windows-x64`; the deployed file had
+`driverAudit: true` and every other key unchanged (see the session report).
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

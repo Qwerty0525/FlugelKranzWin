@@ -18,7 +18,11 @@
 ./build-windows.ps1
 # PATH にない場合：
 # ./build-windows.ps1 -Dotnet 'C:/path/to/dotnet.exe' -CMake 'C:/path/to/cmake.exe'
+# 飛行・コンパスの試験用ビルド（driverAudit = true）：
+# ./build-windows.ps1 -TestBuild
 ```
+
+通常（リリース）のビルドは配置するドライバー設定 `default.vrsettings` に `driverAudit: false` を、`-TestBuild` を付けたビルドは `driverAudit: true` を書き込みます（毎秒の `DriverAudit` 行を `vrserver.txt` に出力）。どちらもビルドのたびに配置先の値を上書きするため、アプリの「詳細診断」で変えた値もビルドで戻ります。
 
 出力先は `artifacts/windows-x64` です。フォルダー全体を配置し、配置先を決めてから登録してください。アプリ名は `FlugelKranz`、実行ファイルは `FlugelKranz.exe` です。
 
