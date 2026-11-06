@@ -146,7 +146,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         nameof(InfiniteTurnSmoothLabel), nameof(InfiniteTurnHeadSmoothLabel), nameof(InfiniteWalkingBoostLabel),
         nameof(BrakeRampLabel), nameof(ValveIndexPositionDeadZoneLabel), nameof(ValveIndexForceThresholdLabel),
         nameof(ValveIndexForceStatus), nameof(DiagnosticStatus), nameof(DiagnosticFileList), nameof(DiagnosticPlanHeader),
-        nameof(DetailedDiagnosticsStatus)
+        nameof(DetailedDiagnosticsStatus), nameof(CompassSizeLabel), nameof(CompassStatusText)
     ];
 
     /// <summary>
@@ -219,7 +219,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         controller = new(
             () => runtimeFactory is not null ? runtimeFactory(CreateValveIndexSettings)
                 : OperatingSystem.IsWindows()
-                ? new DriverFlightRuntime()
+                ? new DriverFlightRuntime(new CompassOptions(CreateCompassSettings, compassRenderer))
                 : new MonadoFlightRuntime(libraryPath, CreateValveIndexSettings),
             new UiProgress(Update),
             CreateSettings,
@@ -250,7 +250,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             nameof(InfiniteDragSmoothSeconds) or nameof(InfiniteTurnSmoothSeconds) or
             nameof(InfiniteTurnHeadSmoothSeconds) or nameof(InfiniteWalkingBoostMultiplier) or
             nameof(ValveIndexPositionDeadZone) or nameof(ValveIndexForceThreshold) or
-            nameof(BrakeRampSeconds) or nameof(HighRateCommandLoop)))
+            nameof(BrakeRampSeconds) or nameof(HighRateCommandLoop)) &&
+            Array.IndexOf(CompassSettingNames, e.PropertyName) < 0)
             return;
 
         settingsStore.Save(CreateSettings());
@@ -291,6 +292,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         ValveIndexPositionDeadZone = Math.Round(root.ValveIndex.PositionDeadZone, 6);
         ValveIndexForceThreshold = Math.Round(root.ValveIndex.ForceThreshold, 6);
         HighRateCommandLoop = root.HighRateCommandLoop;
+        ApplyCompassSettings(root.Compass);
     }
 
     private void ResetToDefaults(Action<FlightMotionSettings> apply)
@@ -419,6 +421,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         IsValveIndexDetected = state.LeftTrackpadForce.HasValue || state.RightTrackpadForce.HasValue;
         LeftValveIndexForce = state.LeftTrackpadForce ?? 0;
         RightValveIndexForce = state.RightTrackpadForce ?? 0;
+        UpdateCompassStatus(state);
     }
 
     private FlugelKranzSettings CreateSettings() => new()
@@ -456,7 +459,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             TurnMovementBoostMultiplier = (float)InfiniteWalkingBoostMultiplier
         },
         ValveIndex = CreateValveIndexSettings(),
-        HighRateCommandLoop = HighRateCommandLoop
+        HighRateCommandLoop = HighRateCommandLoop,
+        Compass = CreateCompassSettings()
     };
 
     private ValveIndexInputSettings CreateValveIndexSettings() => new()
@@ -484,6 +488,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         IsEnabled = false;
         SetStatus(UiMessage.FromKey("status.restoring"));
         await controller.DisposeAsync();
+        compassRenderer.Dispose();
     }
 
     private sealed class UiProgress(Action<FlightStatus> update) : IProgress<FlightStatus>

@@ -32,6 +32,17 @@ public interface IFlightBindings
     void OpenBindings();
 }
 
+/// <summary>Told on every loop iteration whether flight is ON (for the compass's "only while flying").</summary>
+public interface IFlightActivity
+{
+    void SetFlightActive(bool active);
+}
+
+public interface ICompassStatusSource
+{
+    CompassStatus? CompassStatus { get; }
+}
+
 public sealed record FlightStatus(
     bool Enabled,
     bool Connected,
@@ -43,7 +54,8 @@ public sealed record FlightStatus(
     float? RightTrackpadForce = null,
     RigidPose? ReferenceSpaceOffset = null,
     Vector3? RecentReferenceSpaceMovement = null,
-    string? InputDiagnostics = null);
+    string? InputDiagnostics = null,
+    CompassStatus? Compass = null);
 
 /// <summary>Owns the runtime on one worker. Flight off permits independently enabled Drag without inertia; reset restores the offset.</summary>
 public sealed class FlightController(
@@ -147,6 +159,7 @@ public sealed class FlightController(
                     (runtime as IFlightInputControl)?.SetPilotInputEnabled(enabled &&
                         (inputModeOverride ?? inputSettings.Mode) == FlightMode.FreeFlight &&
                         inputSettings.FreeFlight.HeadPilotEnabled);
+                    (runtime as IFlightActivity)?.SetFlightActive(enabled);
                 }
                 var frame = runtime.ReadPhysical();
                 long timestamp = Stopwatch.GetTimestamp();
@@ -370,7 +383,8 @@ public sealed class FlightController(
                             TrackpadForce(frame.Right),
                             referenceSpaceOffset,
                             recentReferenceSpaceMovement,
-                            (runtime as IFlightInputDiagnostics)?.InputDiagnostics));
+                            (runtime as IFlightInputDiagnostics)?.InputDiagnostics,
+                            (runtime as ICompassStatusSource)?.CompassStatus));
                     }
                 }
                 await WaitForNextTick(settings.HighRateCommandLoop, highResolutionDelay, shutdown.Token).ConfigureAwait(false);

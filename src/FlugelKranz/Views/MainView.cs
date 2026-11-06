@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Markup.Declarative;
 using Avalonia.Media;
+using FlugelKranz.Core;
 using FlugelKranz.Localization;
 using FlugelKranz.ViewModels;
 using System.Linq.Expressions;
@@ -274,8 +275,65 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                 ResetButton(model, x => x.ResetHighRateCommandLoopCommand)),
             Note(model.Strings, "settings.commandLoop.note"),
             Divider(),
+            CompassSection(model),
+            Divider(),
             DiagnosticsSection(model)
         );
+
+    /// <summary>The gravity compass overlay: on / off, hand, when, glow colour, size, and its status.</summary>
+    private static Control CompassSection(MainViewModel model) =>
+        new StackPanel().Spacing(8).Children(
+            Header(model.Strings, "settings.compass.header"),
+            Row(model.Strings, "settings.compass.enabled",
+                new CheckBox { Name = "CompassEnabled" }.IsChecked(model, x => x.CompassEnabled),
+                ResetButton(model, x => x.ResetCompassEnabledCommand)),
+            Row(model.Strings, "settings.compass.hand",
+                Choice(model, "CompassHand", nameof(MainViewModel.CompassHandIndex), () => model.CompassHandIndex,
+                    i => model.CompassHandIndex = i, "settings.compass.hand.left", "settings.compass.hand.right"),
+                ResetButton(model, x => x.ResetCompassHandCommand)),
+            Row(model.Strings, "settings.compass.visibility",
+                Choice(model, "CompassVisibility", nameof(MainViewModel.CompassVisibilityIndex), () => model.CompassVisibilityIndex,
+                    i => model.CompassVisibilityIndex = i, "settings.compass.visibility.whileFlying", "settings.compass.visibility.always"),
+                ResetButton(model, x => x.ResetCompassVisibilityCommand)),
+            Row(model.Strings, "settings.compass.glow",
+                Choice(model, "CompassGlow", nameof(MainViewModel.CompassGlowIndex), () => model.CompassGlowIndex,
+                    i => model.CompassGlowIndex = i, "settings.compass.glow.teal", "settings.compass.glow.lime", "settings.compass.glow.amber"),
+                ResetButton(model, x => x.ResetCompassGlowCommand)),
+            Row(model, x => x.CompassSizeLabel,
+                new Slider { Name = "CompassSize" }.Minimum(CompassSettings.MinimumSizeCentimetres)
+                    .Maximum(CompassSettings.MaximumSizeCentimetres).TickFrequency(0.1)
+                    .Value(model, x => x.CompassSizeCentimetres),
+                ResetButton(model, x => x.ResetCompassSizeCommand)),
+            Note(model.Strings, "settings.compass.note"),
+            new SelectableTextBlock { Name = "CompassStatus" }.Text(model, x => x.CompassStatusText)
+                .TextWrapping(TextWrapping.Wrap));
+
+    /// <summary>
+    /// One toggle button per option (like the language selector), the selected one checked. Texts
+    /// follow the UI language live, which a ComboBox's closed selection box would not.
+    /// </summary>
+    private static WrapPanel Choice(MainViewModel model, string name, string property, Func<int> get, Action<int> set,
+        params string[] keys)
+    {
+        var panel = new WrapPanel { Name = name, Orientation = Orientation.Horizontal, ItemSpacing = 4, LineSpacing = 4 };
+        var buttons = new List<ToggleButton>();
+        for (int index = 0; index < keys.Length; index++)
+        {
+            int option = index;
+            var button = Localize(model.Strings, new ToggleButton { Tag = option, Padding = new Thickness(8, 4) },
+                (b, text) => b.Content = text, keys[index]);
+            button.Click += (_, _) => { set(option); Sync(); };
+            buttons.Add(button);
+            panel.Children.Add(button);
+        }
+        void Sync()
+        {
+            foreach (var button in buttons) button.IsChecked = Equals(button.Tag, get());
+        }
+        model.PropertyChanged += (_, args) => { if (args.PropertyName == property) Sync(); };
+        Sync();
+        return panel;
+    }
 
     /// <summary>The driverAudit flag, then "Save diagnostic logs": a list of what goes in, then Save / Cancel.</summary>
     private static Control DiagnosticsSection(MainViewModel model) =>

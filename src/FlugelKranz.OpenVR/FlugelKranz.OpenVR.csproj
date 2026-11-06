@@ -11,4 +11,7 @@
     <None Update="Actions/*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="manifest.vrmanifest" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="FlugelKranz.Tests" />
+  </ItemGroup>
 </Project>

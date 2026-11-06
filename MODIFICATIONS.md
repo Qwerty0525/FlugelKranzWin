@@ -528,6 +528,80 @@ The headless settings test now shows the warning with SteamVR reported
 running, hides it after a refresh with SteamVR closed, and still saves the
 zip while it is shown.
 
+## 2026-11-06 — Gravity compass overlay
+
+Affected files: the new `src/FlugelKranz.Core/GravityCompass.cs`,
+`src/FlugelKranz.OpenVR/CompassOverlay.cs`,
+`src/FlugelKranz/Compass/CompassRenderer.cs` and
+`src/FlugelKranz/ViewModels/MainViewModel.Compass.cs`;
+`src/FlugelKranz.Core/FlightController.cs`,
+`src/FlugelKranz.Core/FlightMotionSettings.cs`,
+`src/FlugelKranz.OpenVR/DriverFlightRuntime.cs`,
+`src/FlugelKranz.OpenVR/FlugelKranz.OpenVR.csproj` (`InternalsVisibleTo`),
+`src/FlugelKranz/ViewModels/MainViewModel.cs`,
+`src/FlugelKranz/Views/MainView.cs`, both language tables, `WINDOWS.md`, and
+the new `tests/FlugelKranz.Tests/CompassMathTests.cs`,
+`CompassOverlayTests.cs` and `CompassSettingsTests.cs`.
+
+A small see-through sphere (about 4.5 cm, adjustable 3–8 cm) floats above the
+back of one hand and shows the real room frame while the world is turned by
+3-axis flight: a thick, softly glowing arrow for real gravity (teal
+`#5fe8c4`, or lime `#a6f06a` / amber `#ffc46b`), thin arrows for real forward
+(blue `#7fa8e8`) and right (coral `#e8907a`), and a faint ring for the real
+horizontal plane. The sphere is a faint fill and a thin outline, with no
+reflections or highlights. Whatever lies on the far half of the sphere is
+dimmed (the gravity arrow less so, since looking down at the hand puts it on
+the far half).
+
+**Math.** The flight transform D maps physical to flown poses (game pose =
+D × physical). The real axes in flown coordinates are therefore the room axes
+rotated by D (`CompassMath.RealAxesInFlown`: identity gives −Y / −Z / +X).
+SteamVR places a device-relative overlay on the flown controller pose and
+draws it from the flown head, so the quad is computed in flown space too: it
+sits at the flown hand × a fixed offset, faces the flown head with its up
+along the head's up, and the arrows are the real axes expressed in that
+quad's frame. D cancels out of the image, so the arrows point at the real
+floor as the eye sees it however the world is rolled or pitched, while
+against the flown world they tilt by the flight's rotation. Tests cover
+identity, pure yaw, pitch, roll and a combined rotation, the cancellation,
+the quad facing the head, a tilted head, and a held image.
+
+**Overlay.** OpenVR overlays are flat, so the sphere is a billboard drawn
+with SkiaSharp into a 256 px texture (`SetOverlayRaw`, straight alpha) and
+attached with `SetOverlayTransformTrackedDeviceRelative` to the chosen
+controller. Input method is None, so it never takes focus or input from the
+game. The flight loop only hands the physical poses, controller indices and
+D to the compass under a small lock; a below-normal-priority thread does the
+rest about 64 times a second (15 ms sleeps). The transform is sent when it
+moves by more than 0.5 mm / 0.3°. A new image is drawn only when the view of
+the sphere turns by more than 1.5°, at most 30 times a second; between
+images the previous one is kept fixed in the room, so its arrows stay
+correct and only its facing lags by up to 1.5°. Turning the wrist or the
+flight turning the world does not redraw. All OpenVR calls from the flight
+loop and the compass thread share one lock. If `IVROverlay` is missing or
+`CreateOverlay` fails, the settings panel says so and the flight goes on.
+The compass exists only while the app is connected to SteamVR and is
+destroyed on disconnect.
+
+**Settings** (settings panel → Gravity compass; `"compass"` in
+`config.json`; each with a reset): show (default on), hand (left / right,
+default left), when (while flying / always, default while flying; "always"
+means while connected to SteamVR), gravity arrow colour (teal / lime /
+amber), size. Changes apply live. Configs without the key get the defaults.
+The option buttons are toggle buttons like the language selector, because a
+ComboBox's closed box keeps the old language's text.
+
+### Testing
+
+`CompassMathTests` (direction math, before the overlay was wired),
+`CompassOverlayTests` (visibility, hand switch, tracking loss, redraw and
+transform rates against a manual clock, held image correctness, missing
+overlay interface through `DriverFlightRuntime`, the renderer's pixels) and
+`CompassSettingsTests` (config round trip, the settings panel in both
+languages, resets). `RenderPreviewImagesWhenAsked` writes the texture and a
+mock flown view for identity, roll 90° and pitch 45° when
+`FLUGELKRANZ_COMPASS_PNG` names a folder. Not yet seen in VR.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

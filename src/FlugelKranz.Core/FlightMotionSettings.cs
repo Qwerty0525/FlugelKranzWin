@@ -94,6 +94,8 @@ public sealed record FlugelKranzSettings
     /// a saved <c>false</c> is kept.
     /// </summary>
     public bool HighRateCommandLoop { get; init; } = true;
+    /// <summary>The gravity compass overlay. Missing from older configs, which get the defaults.</summary>
+    public CompassSettings Compass { get; init; } = CompassSettings.Default;
 
     public FlugelKranzSettings Normalized() => this with
     {
@@ -101,6 +103,7 @@ public sealed record FlugelKranzSettings
         Mode = Enum.IsDefined(Mode) ? Mode : FlightMode.FreeFlight,
         FreeFlight = (FreeFlight ?? FlightMotionSettings.Default).Normalized(),
         InfiniteWalking = (InfiniteWalking ?? InfiniteWalkingSettings.Default).Normalized(),
-        ValveIndex = (ValveIndex ?? ValveIndexInputSettings.Default).Normalized()
+        ValveIndex = (ValveIndex ?? ValveIndexInputSettings.Default).Normalized(),
+        Compass = (Compass ?? CompassSettings.Default).Normalized()
     };
 }
