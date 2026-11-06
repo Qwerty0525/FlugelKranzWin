@@ -2,6 +2,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FlugelKranz.Core;
+using FlugelKranz.Localization;
 using FlugelKranz.OpenXR;
 using FlugelKranz.OpenVR;
 using System.Numerics;
@@ -22,11 +23,16 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty] private bool isSettingsOpen;
     [ObservableProperty] private double settingsPanelWidth;
     [ObservableProperty] private bool isConnected;
-    [ObservableProperty] private string status = "オフ — オンにするとランタイムへ接続します。";
+    private UiMessage statusMessage = UiMessage.FromKey("status.off.initial");
     [ObservableProperty] private string inputDiagnostics = "";
-    [ObservableProperty] private string leftStatus = "左右の操作入力から Drag";
-    [ObservableProperty] private string rightStatus = "左右の操作入力から Turn";
-    [ObservableProperty] private string referenceSpaceOffsetStatus = "送信中の STAGE オフセット: 未接続";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LeftStatus))]
+    private bool isDragging;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RightStatus))]
+    private bool isTurning;
+    private RigidPose? shownReferenceSpaceOffset;
+    private Vector3? shownReferenceSpaceMovement;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ModeLabel))]
     [NotifyPropertyChangedFor(nameof(ModeDescription))]
@@ -107,42 +113,105 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ValveIndexForceStatus))]
     private double rightValveIndexForce;
-    public string ToggleLabel => IsEnabled ? "ON" : "OFF";
+    /// <summary>UI text for the current language; the view refreshes static text on <see cref="UiStrings.LanguageChanged"/>.</summary>
+    public UiStrings Strings { get; } = new();
+    public IReadOnlyList<UiLanguage> Languages => UiStrings.Languages;
+
+    /// <summary>UI language code (e.g. "ja", "en"); saved to config.json, switched live.</summary>
+    public string Language
+    {
+        get => Strings.Language;
+        set
+        {
+            if (closing || !Strings.SetLanguage(value)) return;
+            settingsStore.Language = Strings.Language;
+            OnPropertyChanged();
+            foreach (string name in LocalizedProperties) OnPropertyChanged(name);
+            settingsStore.Save(CreateSettings());
+        }
+    }
+
+    [RelayCommand] private void SelectLanguage(string? language) => Language = language ?? UiStrings.DefaultLanguage;
+
+    private static readonly string[] LocalizedProperties =
+    [
+        nameof(Status), nameof(LeftStatus), nameof(RightStatus), nameof(ReferenceSpaceOffsetStatus),
+        nameof(ToggleLabel), nameof(ModeDescription), nameof(DragCutoffLabel), nameof(TurnCutoffLabel),
+        nameof(DragAccelerationLabel), nameof(TurnAccelerationLabel), nameof(ZAccelerationLabel),
+        nameof(InertiaAccelerationBoostMaximumLabel), nameof(VectorRotationLabel), nameof(InertiaDecelerationLabel),
+        nameof(InertiaStopDisplacementLabel), nameof(DragDecelerationExemptionDurationLabel),
+        nameof(TurnDecelerationExemptionDurationLabel), nameof(DecelerationExemptionStrengthLabel),
+        nameof(DragSmoothLabel), nameof(TurnSmoothLabel), nameof(InfiniteDragSmoothLabel),
+        nameof(InfiniteTurnSmoothLabel), nameof(InfiniteTurnHeadSmoothLabel), nameof(InfiniteWalkingBoostLabel),
+        nameof(BrakeRampLabel), nameof(ValveIndexPositionDeadZoneLabel), nameof(ValveIndexForceThresholdLabel),
+        nameof(ValveIndexForceStatus)
+    ];
+
+    /// <summary>
+    /// Status line shown in the settings panel. Setting it takes raw text (as Core reports it,
+    /// in Japanese); reading it returns that text translated for the current language.
+    /// </summary>
+    public string Status
+    {
+        get => statusMessage.Resolve(Strings);
+        set => SetStatus(UiMessage.FromText(value));
+    }
+
+    private void SetStatus(UiMessage message)
+    {
+        statusMessage = message;
+        OnPropertyChanged(nameof(Status));
+    }
+
+    public string LeftStatus => Strings[IsDragging ? "status.drag.active" : "status.drag.idle"];
+    public string RightStatus => Strings[IsTurning ? "status.turn.active" : "status.turn.idle"];
+    public string ReferenceSpaceOffsetStatus => shownReferenceSpaceOffset is { } offset
+        ? FormatReferenceSpaceOffset(offset, shownReferenceSpaceMovement)
+        : Strings["status.stageOffset.disconnected"];
+    public string ToggleLabel => Strings[IsEnabled ? "main.toggle.on" : "main.toggle.off"];
     public string ModeLabel => Mode == FlightMode.InfiniteWalking ? "I" : "F";
-    public string ModeDescription => Mode == FlightMode.InfiniteWalking ? "無限歩行モード" : "自由飛行モード";
-    public string DragCutoffLabel => $"Drag: {DragCutoffCentimetresPerSecond:0.0} cm/s";
-    public string TurnCutoffLabel => $"Turn: {TurnCutoffDegreesPerSecond:0.0} °/s";
-    public string DragAccelerationLabel => $"Drag: {DragAccelerationMultiplier:0.00} 倍";
-    public string TurnAccelerationLabel => $"Turn: {TurnAccelerationMultiplier:0.00} 倍";
-    public string ZAccelerationLabel => $"Z: {ZAccelerationMultiplier:0.00} 倍";
+    public string ModeDescription => Strings[Mode == FlightMode.InfiniteWalking ? "mode.infiniteWalking" : "mode.freeFlight"];
+    public string DragCutoffLabel => Strings.Format("settings.inertiaCutoff.drag", DragCutoffCentimetresPerSecond);
+    public string TurnCutoffLabel => Strings.Format("settings.inertiaCutoff.turn", TurnCutoffDegreesPerSecond);
+    public string DragAccelerationLabel => Strings.Format("settings.inertiaAcceleration.drag", DragAccelerationMultiplier);
+    public string TurnAccelerationLabel => Strings.Format("settings.inertiaAcceleration.turn", TurnAccelerationMultiplier);
+    public string ZAccelerationLabel => Strings.Format("settings.zAcceleration.multiplier", ZAccelerationMultiplier);
     public string InertiaAccelerationBoostMaximumLabel =>
-        $"最大加速倍率: {InertiaAccelerationBoostMaximumMultiplier:0.00} 倍";
-    public string VectorRotationLabel => $"倍率: {VectorRotationMultiplier:0.00}";
-    public string InertiaDecelerationLabel => $"{InertiaDecelerationPerSecond:0.00} /秒";
-    public string InertiaStopDisplacementLabel => $"終端カットオフ: {InertiaStopDisplacementMetres:0.######} m";
+        Strings.Format("settings.accelerationBoost.maximum", InertiaAccelerationBoostMaximumMultiplier);
+    public string VectorRotationLabel => Strings.Format("settings.vectorRotation.multiplier", VectorRotationMultiplier);
+    public string InertiaDecelerationLabel => Strings.Format("settings.deceleration.rate", InertiaDecelerationPerSecond);
+    public string InertiaStopDisplacementLabel =>
+        Strings.Format("settings.deceleration.stopDisplacement", InertiaStopDisplacementMetres);
     public string DragDecelerationExemptionDurationLabel =>
-        $"Drag 免除時間: {DragDecelerationExemptionDurationRatio:0.00}";
+        Strings.Format("settings.exemption.drag", DragDecelerationExemptionDurationRatio);
     public string TurnDecelerationExemptionDurationLabel =>
-        $"Turn 免除時間: {TurnDecelerationExemptionDurationRatio:0.00}";
-    public string DecelerationExemptionStrengthLabel => $"免除割合: {DecelerationExemptionStrength:0.00}";
-    public string DragSmoothLabel => $"Drag: {DragSmoothSeconds:0.00} 秒";
-    public string TurnSmoothLabel => $"Turn: {TurnSmoothSeconds:0.00} 秒";
-    public string InfiniteDragSmoothLabel => $"Drag: {InfiniteDragSmoothSeconds:0.00} 秒";
-    public string InfiniteTurnSmoothLabel => $"Turn: {InfiniteTurnSmoothSeconds:0.00} 秒";
-    public string InfiniteTurnHeadSmoothLabel => $"Turn Head: {InfiniteTurnHeadSmoothSeconds:0.00} 秒";
-    public string InfiniteWalkingBoostLabel => $"補正値: {InfiniteWalkingBoostMultiplier:0.00} 倍";
-    public string BrakeRampLabel => $"適用時間: {BrakeRampSeconds:0.00} 秒";
-    public string ValveIndexPositionDeadZoneLabel => $"位置デッドゾーン: {ValveIndexPositionDeadZone:0.00}";
-    public string ValveIndexForceThresholdLabel => $"Force 閾値: {ValveIndexForceThreshold:0.00}";
+        Strings.Format("settings.exemption.turn", TurnDecelerationExemptionDurationRatio);
+    public string DecelerationExemptionStrengthLabel =>
+        Strings.Format("settings.exemption.strength", DecelerationExemptionStrength);
+    public string DragSmoothLabel => Strings.Format("settings.dragSmooth.drag", DragSmoothSeconds);
+    public string TurnSmoothLabel => Strings.Format("settings.dragSmooth.turn", TurnSmoothSeconds);
+    public string InfiniteDragSmoothLabel => Strings.Format("settings.infiniteSmooth.drag", InfiniteDragSmoothSeconds);
+    public string InfiniteTurnSmoothLabel => Strings.Format("settings.infiniteSmooth.turn", InfiniteTurnSmoothSeconds);
+    public string InfiniteTurnHeadSmoothLabel =>
+        Strings.Format("settings.infiniteSmooth.turnHead", InfiniteTurnHeadSmoothSeconds);
+    public string InfiniteWalkingBoostLabel =>
+        Strings.Format("settings.infiniteBoost.multiplier", InfiniteWalkingBoostMultiplier);
+    public string BrakeRampLabel => Strings.Format("settings.dragBrake.ramp", BrakeRampSeconds);
+    public string ValveIndexPositionDeadZoneLabel =>
+        Strings.Format("settings.valveIndex.positionDeadZone", ValveIndexPositionDeadZone);
+    public string ValveIndexForceThresholdLabel =>
+        Strings.Format("settings.valveIndex.forceThreshold", ValveIndexForceThreshold);
     public string ValveIndexForceStatus =>
-        $"Valve Index force — 左: {LeftValveIndexForce:0.00} / 右: {RightValveIndexForce:0.00}";
+        Strings.Format("status.valveIndexForce", LeftValveIndexForce, RightValveIndexForce);
 
     public MainViewModel(string libraryPath, string? settingsPath = null,
         Func<Func<ValveIndexInputSettings>, IFlightRuntime>? runtimeFactory = null, bool enableIndependentDrag = false)
     {
         this.enableIndependentDrag = enableIndependentDrag;
         settingsStore = new(settingsPath);
-        ApplySettings(settingsStore.Load());
+        var savedSettings = settingsStore.Load();
+        Strings.SetLanguage(settingsStore.Language);
+        ApplySettings(savedSettings);
         PropertyChanged += SettingsChanged;
         controller = new(
             () => runtimeFactory is not null ? runtimeFactory(CreateValveIndexSettings)
@@ -156,7 +225,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         {
             Mode = FlightMode.InfiniteWalking;
             IsEnabled = true;
-            Status = "無限歩行モードで接続・入力を準備しています…";
+            SetStatus(UiMessage.FromKey("status.preparingInfiniteWalking"));
             controller.SetEnabled(true);
         }
     }
@@ -260,7 +329,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     {
         if (closing) return;
         Mode = Mode == FlightMode.InfiniteWalking ? FlightMode.FreeFlight : FlightMode.InfiniteWalking;
-        Status = $"{ModeDescription}へ切り替えました。操作入力を離してから使用してください。";
+        SetStatus(UiMessage.FromKey(Mode == FlightMode.InfiniteWalking
+            ? "runtime.modeChanged.infiniteWalking"
+            : "runtime.modeChanged.freeFlight"));
     }
 
     [RelayCommand]
@@ -268,7 +339,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     {
         if (closing) return;
         IsEnabled = !IsEnabled;
-        Status = IsEnabled ? "接続・入力を準備しています…" : "オフ — 現在の位置・姿勢を保持します。";
+        SetStatus(UiMessage.FromKey(IsEnabled ? "status.preparing" : "status.off.holding"));
         controller.SetEnabled(IsEnabled);
     }
 
@@ -324,12 +395,20 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         Mode = state.Mode;
         Status = state.Message;
         InputDiagnostics = state.InputDiagnostics ?? "";
-        LeftStatus = state.Dragging ? "Space Drag — 操作中" : "左右の操作入力から Drag";
-        RightStatus = state.Turning ? "Space Turn — 操作中" : "左右の操作入力から Turn";
+        IsDragging = state.Dragging;
+        IsTurning = state.Turning;
         if (state.ReferenceSpaceOffset is { } referenceSpaceOffset)
-            ReferenceSpaceOffsetStatus = FormatReferenceSpaceOffset(referenceSpaceOffset, state.RecentReferenceSpaceMovement);
-        else if (!state.Connected)
-            ReferenceSpaceOffsetStatus = "送信中の STAGE オフセット: 未接続";
+        {
+            shownReferenceSpaceOffset = referenceSpaceOffset;
+            shownReferenceSpaceMovement = state.RecentReferenceSpaceMovement;
+            OnPropertyChanged(nameof(ReferenceSpaceOffsetStatus));
+        }
+        else if (!state.Connected && shownReferenceSpaceOffset is not null)
+        {
+            shownReferenceSpaceOffset = null;
+            shownReferenceSpaceMovement = null;
+            OnPropertyChanged(nameof(ReferenceSpaceOffsetStatus));
+        }
         IsValveIndexDetected = state.LeftTrackpadForce.HasValue || state.RightTrackpadForce.HasValue;
         LeftValveIndexForce = state.LeftTrackpadForce ?? 0;
         RightValveIndexForce = state.RightTrackpadForce ?? 0;
@@ -378,10 +457,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         ForceThreshold = (float)ValveIndexForceThreshold
     };
 
-    private static string FormatReferenceSpaceOffset(RigidPose offset, Vector3? recentMovement)
+    private string FormatReferenceSpaceOffset(RigidPose offset, Vector3? recentMovement)
     {
         var movement = recentMovement ?? Vector3.Zero;
-        return FormattableString.Invariant($"送信中の STAGE オフセット: 位置 ({offset.Position.X:G9}, {offset.Position.Y:G9}, {offset.Position.Z:G9}) 直近移動 ({movement.X:G9}, {movement.Y:G9}, {movement.Z:G9}) / {movement.Length():G9} m 回転 ({offset.Orientation.X:G9}, {offset.Orientation.Y:G9}, {offset.Orientation.Z:G9}, {offset.Orientation.W:G9})");
+        static string G9(float value) => value.ToString("G9", System.Globalization.CultureInfo.InvariantCulture);
+        return Strings.Format("status.stageOffset.value",
+            G9(offset.Position.X), G9(offset.Position.Y), G9(offset.Position.Z),
+            G9(movement.X), G9(movement.Y), G9(movement.Z), G9(movement.Length()),
+            G9(offset.Orientation.X), G9(offset.Orientation.Y), G9(offset.Orientation.Z), G9(offset.Orientation.W));
     }
 
     public async ValueTask DisposeAsync()
@@ -391,7 +474,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         settingsAnimation?.Dispose();
         settingsStore.Save(CreateSettings());
         IsEnabled = false;
-        Status = "接続時の位置・姿勢に戻しています…";
+        SetStatus(UiMessage.FromKey("status.restoring"));
         await controller.DisposeAsync();
     }
 

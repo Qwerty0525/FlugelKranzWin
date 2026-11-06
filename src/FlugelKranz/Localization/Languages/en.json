@@ -1,0 +1,136 @@
+{
+  // English UI table. Keys mirror ja.json; keep {0}, {1}… placeholders and their formats.
+  "_language": { "selectorLabel": "ENG", "nativeName": "English", "order": 1 },
+  "strings": {
+    "main.toggle.on": "ON",
+    "main.toggle.off": "OFF",
+    "main.mode.tooltip": "I: Infinite walking / F: Free flight",
+    "main.resetPose.tooltip": "Reset to the position and orientation from when you connected",
+    "main.language.tooltip": "Display language",
+
+    "settings.title": "Settings",
+    "settings.close": "Close",
+    "settings.openBindings": "Open SteamVR controller bindings",
+    "settings.inputStatus": "Input status",
+    "settings.reset.tooltip": "Reset to default",
+    "settings.enabled": "Enabled",
+
+    "settings.valveIndex.header": "Valve Index input",
+    "settings.valveIndex.positionDeadZone": "Position dead zone: {0:0.00}",
+    "settings.valveIndex.forceThreshold": "Force threshold: {0:0.00}",
+
+    "settings.mode.header": "Mode",
+    "settings.mode.toggle": "Switch I / F",
+    "mode.infiniteWalking": "Infinite walking mode",
+    "mode.freeFlight": "Free flight mode",
+
+    "settings.infiniteSmooth.header": "Infinite walking — Drag smoothing",
+    "settings.infiniteSmooth.drag": "Drag: {0:0.00} s",
+    "settings.infiniteSmooth.turn": "Turn: {0:0.00} s",
+    "settings.infiniteSmooth.turnHead": "Two-hand Turn: {0:0.00} s",
+
+    "settings.infiniteBoost.header": "Infinite walking boost",
+    "settings.infiniteBoost.multiplier": "Strength: {0:0.00}×",
+
+    "settings.headPilot.header": "Free flight — Head pilot (experimental)",
+    "settings.headPilot.enabled": "Enabled (X/A toggles head pilot)",
+
+    "settings.drag.header": "Free flight — Drag",
+    "settings.drag.enabled": "Enabled (grab while held)",
+
+    "settings.turnOrigin.header": "Free flight — Turn pivot",
+    "settings.turnOrigin.head": "Pivot on the head",
+
+    "settings.inertiaCutoff.header": "Free flight — Inertia cutoff",
+    "settings.inertiaCutoff.drag": "Drag: {0:0.0} cm/s",
+    "settings.inertiaCutoff.turn": "Turn: {0:0.0} °/s",
+
+    "settings.inertiaAcceleration.header": "Inertia acceleration multiplier",
+    "settings.inertiaAcceleration.drag": "Drag: {0:0.00}×",
+    "settings.inertiaAcceleration.turn": "Turn: {0:0.00}×",
+
+    "settings.zAcceleration.header": "Z acceleration",
+    "settings.zAcceleration.multiplier": "Z: {0:0.00}×",
+
+    "settings.accelerationBoost.header": "Inertia acceleration boost mode",
+    "settings.accelerationBoost.maximum": "Max multiplier: {0:0.00}×",
+
+    "settings.vectorRotation.header": "Vector rotation multiplier",
+    "settings.vectorRotation.multiplier": "Multiplier: {0:0.00}",
+
+    "settings.deceleration.header": "Inertia deceleration",
+    "settings.deceleration.rate": "{0:0.00} /s",
+    "settings.deceleration.stopDisplacement": "Stop cutoff: {0:0.######} m",
+
+    "settings.exemption.header": "Deceleration exemption",
+    "settings.exemption.drag": "Drag exemption time: {0:0.00}",
+    "settings.exemption.turn": "Turn exemption time: {0:0.00}",
+    "settings.exemption.strength": "Exemption ratio: {0:0.00}",
+
+    "settings.dragSmooth.header": "Drag smoothing",
+    "settings.dragSmooth.drag": "Drag: {0:0.00} s",
+    "settings.dragSmooth.turn": "Turn: {0:0.00} s",
+
+    "settings.dragBrake.header": "Drag brake",
+    "settings.dragBrake.ramp": "Ramp time: {0:0.00} s",
+
+    "status.off.initial": "OFF — turn ON to connect to the runtime.",
+    "status.off.holding": "OFF — keeping the current position and orientation.",
+    "status.preparing": "Connecting and preparing input…",
+    "status.preparingInfiniteWalking": "Connecting and preparing input in infinite walking mode…",
+    "status.restoring": "Restoring the position and orientation from when you connected…",
+    "status.drag.idle": "Drag with either controller",
+    "status.drag.active": "Space Drag — active",
+    "status.turn.idle": "Turn with either controller",
+    "status.turn.active": "Space Turn — active",
+    "status.stageOffset.disconnected": "STAGE offset being sent: not connected",
+    "status.stageOffset.value": "STAGE offset being sent: position ({0}, {1}, {2}) recent movement ({3}, {4}, {5}) / {6} m rotation ({7}, {8}, {9}, {10})",
+    "status.valveIndexForce": "Valve Index force — L: {0:0.00} / R: {1:0.00}",
+
+    "runtime.connecting": "Connecting to the runtime…",
+    "runtime.bindingsUnsupported": "This runtime does not support binding settings.",
+    "runtime.off.dashboard": "Flight OFF — Drag is paused too while the dashboard is open.",
+    "runtime.off.dragOnly": "Flight OFF — Drag only (no inertia). Release the input, then grab.",
+    "runtime.off.holding": "OFF — holding the current position and orientation.",
+    "runtime.suspended": "Paused — close the dashboard and release the stick and buttons.",
+    "runtime.returningToInfiniteWalking": "Returning to infinite walking mode…",
+    "runtime.waitingForHmd": "Waiting for HMD tracking.",
+    "runtime.waitingForControllers": "Waiting for controller poses and input.",
+    "runtime.headPilot.on": "Head pilot ON — X/A turns it OFF, hold to reset inertia.",
+    "runtime.headPilot.off": "Head pilot OFF — X/A turns it ON, left stick to thrust.",
+    "runtime.on": "ON — release all inputs once before use.",
+    "runtime.restoreFailed": "Restore failed: {0}",
+    "runtime.disconnectFailed": "Disconnect failed: {0}",
+    "runtime.stopped": "Stopped. Restored the position and orientation from when you connected.",
+    "runtime.modeChanged.infiniteWalking": "Switched to infinite walking mode. Release the inputs before use.",
+    "runtime.modeChanged.freeFlight": "Switched to free flight mode. Release the inputs before use.",
+    "runtime.spaceReset.infiniteWalking": "Resetting the infinite walking height…",
+    "runtime.spaceReset.freeFlight": "Levelling free flight…",
+
+    "runtime.driver.windowsOnly": "The SteamVR driver IPC is Windows-only.",
+    "runtime.driver.notRunning": "The FlugelKranz driver for 3-axis rotation is not running. Register it with install-driver.ps1 and restart SteamVR.",
+    "runtime.driver.inUse": "Another FlugelKranz is using the driver.",
+    "runtime.driver.ipcVersion": "FlugelKranz driver IPC version mismatch.",
+    "runtime.driver.notResponding": "The FlugelKranz driver stopped responding.",
+    "runtime.driver.ownershipChanged": "Ownership of the driver connection changed.",
+    "runtime.driver.invalidTransform": "Invalid transform for the driver.",
+    "runtime.driver.busy": "The driver's shared data is busy.",
+    "runtime.standing.invalid": "The Standing origin is invalid.",
+    "runtime.standing.unavailable": "Cannot get the Standing origin. Check the SteamVR room setup.",
+    "runtime.referenceSpace.changed": "The SteamVR reference space changed. Release the flight transform and reconnect.",
+    "runtime.referenceSpace.changedByOtherTool": "Stopped because another tool changed the SteamVR reference space. Stop that space tool and reconnect.",
+    "runtime.space.invalidTransform": "Invalid space transform.",
+    "runtime.chaperone.cannotRotate": "SteamVR Chaperone cannot hold the requested rotation. XYZ rotation needs the FlugelKranz driver.",
+    "runtime.steamVr.invalidRigidTransform": "SteamVR returned an invalid rigid transform.",
+    "runtime.steamVr.invalidPose": "SteamVR returned an invalid position / orientation.",
+    "runtime.steamVr.windowsOnly": "The SteamVR backend is Windows x64 only.",
+    "runtime.steamVr.connectFailed": "SteamVR connection failed: {0}. Start SteamVR.",
+    "runtime.steamVr.inputUnavailable": "SteamVR Input is not available.",
+    "runtime.steamVr.chaperoneUnavailable": "Chaperone is not available.",
+    "runtime.steamVr.applicationsUnavailable": "SteamVR Applications is not available.",
+    "runtime.steamVr.overlayUnavailable": "SteamVR Overlay is not available.",
+    "runtime.steamVr.settingsUnavailable": "SteamVR Settings is not available.",
+    "runtime.steamVr.exited": "SteamVR has exited.",
+    "runtime.steamVr.overlayInputOverridesRequired": "Head pilot needs Experimental overlay input overrides enabled in SteamVR developer settings."
+  }
+}

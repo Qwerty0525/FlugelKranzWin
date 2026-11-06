@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using FlugelKranz.Core;
+using FlugelKranz.Localization;
 
 namespace FlugelKranz.ViewModels;
 
@@ -16,6 +18,10 @@ internal sealed class SettingsStore
 
     public string Path { get; }
 
+    // UI-only setting kept at the config root ("language"), outside the shared Core schema.
+    // Missing or unknown values mean Japanese, so existing configs are unchanged.
+    public string Language { get; set; } = UiStrings.DefaultLanguage;
+
     public FlugelKranzSettings Load()
     {
         try
@@ -26,6 +32,10 @@ internal sealed class SettingsStore
             string json = File.ReadAllText(Path);
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("language", out var language) &&
+                language.ValueKind == JsonValueKind.String)
+                Language = UiStrings.Normalize(language.GetString());
             bool current = root.ValueKind == JsonValueKind.Object &&
                 root.TryGetProperty("schemaVersion", out var version) &&
                 version.ValueKind == JsonValueKind.Number &&
@@ -58,7 +68,9 @@ internal sealed class SettingsStore
                 Directory.CreateDirectory(directory);
 
             string temporaryPath = Path + ".tmp";
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(settings.Normalized(), JsonOptions));
+            var json = JsonSerializer.SerializeToNode(settings.Normalized(), JsonOptions)!.AsObject();
+            json["language"] = UiStrings.Normalize(Language);
+            File.WriteAllText(temporaryPath, json.ToJsonString(JsonOptions));
             File.Move(temporaryPath, Path, true);
         }
         catch (IOException)
