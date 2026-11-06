@@ -95,6 +95,7 @@
     "settings.compass.status.waitingForFlight": "Shown only while flight is ON (hidden now).",
     "settings.compass.status.waitingForTracking": "Waiting for tracking: controller ({0}) or HMD.",
     "settings.compass.status.visible": "Showing ({0})",
+    "settings.compass.status.uploadRetries": "SteamVR refused {0} image updates; the previous image stays and updates are retried.",
     "settings.compass.status.unavailable": "The compass cannot be shown because SteamVR overlays are unavailable (flight is not affected): {0}",
     "settings.diagnostics.header": "Diagnostic logs",
     "settings.detailedDiagnostics.enabled": "Detailed diagnostics",

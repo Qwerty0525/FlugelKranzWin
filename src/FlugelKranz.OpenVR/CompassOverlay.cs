@@ -31,15 +31,23 @@ public interface ICompassOverlayApi : IDisposable
 /// Gravity compass on a controller. The flight loop only publishes poses (cheap, under a lock);
 /// a below-normal-priority thread computes, draws and talks to IVROverlay about 64 times a second
 /// (15 ms sleeps). The transform is sent when it moves by more than 0.5 mm / 0.3 degrees; a new image
-/// is drawn and uploaded only when the view of the sphere turns by more than 1.5 degrees, and at
-/// most 30 times a second. In between the previous image stays fixed in the room (held billboard),
+/// is drawn and uploaded only when the view of the sphere turns by more than 3 degrees, and at
+/// most 10 times a second. In between the previous image stays fixed in the room (held billboard),
 /// so its arrows stay correct while only its facing lags slightly.
+/// Each SetOverlayRaw call hands the compositor a shared memory block; vrclient refuses new ones
+/// while 200 are outstanding ("Refusing to create memory block because 201 blocks are already
+/// outstanding", 2026-11-06 19:30). A refused upload keeps the previous image and is retried with a
+/// growing delay, and other SteamVR errors only disable the compass after 3 s of failing updates.
 /// </summary>
 public sealed class CompassOverlay : IDisposable
 {
     public static readonly TimeSpan ThreadPeriod = TimeSpan.FromMilliseconds(15);
-    public static readonly TimeSpan MinimumImageInterval = TimeSpan.FromMilliseconds(33);
-    public const float ImageAngleRadians = 1.5f * MathF.PI / 180;
+    public static readonly TimeSpan MinimumImageInterval = TimeSpan.FromMilliseconds(100);
+    public const float ImageAngleRadians = 3f * MathF.PI / 180;
+    public static readonly TimeSpan FirstUploadRetry = TimeSpan.FromMilliseconds(250);
+    public static readonly TimeSpan MaximumUploadRetry = TimeSpan.FromSeconds(2);
+    /// <summary>How long other overlay calls may keep failing before the compass gives up.</summary>
+    public static readonly TimeSpan FailureGrace = TimeSpan.FromSeconds(3);
     private const float TransformAngleRadians = 0.3f * MathF.PI / 180;
     private const float TransformMetres = 0.0005f;
 
@@ -64,12 +72,18 @@ public sealed class CompassOverlay : IDisposable
     private CompassGlow imageGlow;
     private CompassHand imageHand;
     private long lastImage;
+    private long nextUploadAllowed;
+    private TimeSpan uploadRetry;
+    private long failingSince;
+    private bool failing;
     private uint transformDevice = Vr.k_unTrackedDeviceIndexInvalid;
     private RigidPose transform;
     private volatile CompassStatus status = new(CompassState.Off, CompassSettings.Default.Hand);
 
     /// <summary>Images drawn so far (for tests and diagnostics).</summary>
     public int ImagesDrawn { get; private set; }
+    /// <summary>Uploads SteamVR refused (each kept the previous image and was retried).</summary>
+    public int UploadFailures { get; private set; }
     public CompassStatus Status => status;
 
     public CompassOverlay(CompassOptions options, object openVrGate, TimeProvider? time = null)
@@ -104,14 +118,31 @@ public sealed class CompassOverlay : IDisposable
     {
         while (!stopping)
         {
-            try { Tick(); }
-            catch (Exception exception) { MarkUnavailable(exception.Message); }
+            Tick();
             Thread.Sleep(ThreadPeriod);
         }
     }
 
-    /// <summary>One update: decide visibility, then send the transform and, when needed, a new image.</summary>
+    /// <summary>
+    /// One update. A SteamVR error does not end the compass at once: updates keep retrying, and only
+    /// <see cref="FailureGrace"/> of nothing but errors marks it unavailable.
+    /// </summary>
     public void Tick()
+    {
+        try
+        {
+            Update();
+            failing = false;
+        }
+        catch (Exception exception)
+        {
+            long now = time.GetTimestamp();
+            if (!failing) { failing = true; failingSince = now; }
+            else if (time.GetElapsedTime(failingSince, now) >= FailureGrace) MarkUnavailable(exception.Message);
+        }
+    }
+
+    private void Update()
     {
         var settings = options.Settings().Normalized();
         if (!settings.Enabled)
@@ -167,19 +198,41 @@ public sealed class CompassOverlay : IDisposable
         // A hand switch (live, from the settings) moves the sphere: draw for the new view at once.
         bool firstImage = billboard is null || imageGlow != settings.Glow || imageHand != settings.Hand;
         bool turned = billboard is { } held && CompassMath.Angle(held, fresh.PhysicalBillboard) > ImageAngleRadians;
-        CompassView view;
-        if (firstImage || turned && time.GetElapsedTime(lastImage, now) >= MinimumImageInterval)
+        CompassView? uploaded = null;
+        bool uploadDue = (firstImage || turned && time.GetElapsedTime(lastImage, now) >= MinimumImageInterval) &&
+            now >= nextUploadAllowed;
+        if (uploadDue)
         {
             options.Renderer.Render(fresh.Axes, settings.Glow, image);
-            api.SetImage(image, options.Renderer.Size);
-            ImagesDrawn++;
-            billboard = fresh.PhysicalBillboard;
-            imageGlow = settings.Glow;
-            imageHand = settings.Hand;
-            lastImage = now;
-            view = fresh;
+            try
+            {
+                api.SetImage(image, options.Renderer.Size);
+                uploadRetry = TimeSpan.Zero;
+                ImagesDrawn++;
+                billboard = fresh.PhysicalBillboard;
+                imageGlow = settings.Glow;
+                imageHand = settings.Hand;
+                lastImage = now;
+                uploaded = fresh;
+            }
+            catch (Exception)
+            {
+                // Refused (for example too many outstanding memory blocks): keep the previous image,
+                // which stays correct with the held billboard, and try again later.
+                UploadFailures++;
+                uploadRetry = uploadRetry == TimeSpan.Zero ? FirstUploadRetry
+                    : TimeSpan.FromTicks(Math.Min(uploadRetry.Ticks * 2, MaximumUploadRetry.Ticks));
+                nextUploadAllowed = now + (long)(uploadRetry.TotalSeconds * time.TimestampFrequency);
+            }
         }
-        else view = CompassMath.Compute(currentFlight, frame.Head, hand.Pose, offset, billboard);
+        if (billboard is null)
+        {
+            // No image has reached SteamVR yet: nothing to show.
+            Hide();
+            status = new(CompassState.WaitingForTracking, settings.Hand);
+            return;
+        }
+        var view = uploaded ?? CompassMath.Compute(currentFlight, frame.Head, hand.Pose, offset, billboard);
 
         if (device != transformDevice ||
             Vector3Distance(view.OverlayInHand, transform) > TransformMetres ||
@@ -190,7 +243,8 @@ public sealed class CompassOverlay : IDisposable
             transform = view.OverlayInHand;
         }
         if (!shown) { api.Show(); shown = true; }
-        status = new(CompassState.Visible, settings.Hand);
+        status = new(CompassState.Visible, settings.Hand,
+            UploadFailures > 0 ? UploadFailures.ToString(System.Globalization.CultureInfo.InvariantCulture) : null);
     }
 
     private static float Vector3Distance(RigidPose a, RigidPose b) => Vector3.Distance(a.Position, b.Position);

@@ -120,6 +120,34 @@ public class CompassMathTests
         Assert.InRange(angle, 89.9f, 90.1f);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void OverlaySitsOnTheHandWithoutFlightAndOnTheFlownHandWithFlight(int which)
+    {
+        // SteamVR places a device-relative overlay on the controller pose it has, which the driver
+        // has already flown (game pose = D * physical). So the overlay must land at the flown hand.
+        RigidPose flight = which switch
+        {
+            0 => RigidPose.Identity,
+            1 => new(Quaternion.Identity, new(25, -4, 130)),
+            _ => new(Quaternion.CreateFromYawPitchRoll(1.2f, -0.8f, 2.1f), new(-60, 15, 42))
+        };
+        var offset = CompassMath.HandOffset(CompassHand.Right);
+        var view = CompassMath.Compute(flight, Head, Hand, offset);
+        var flownHand = flight * Hand;
+        var overlayInSteamVr = flownHand * view.OverlayInHand;
+        // Far from the origin float precision is about a millimetre.
+        static void Close(System.Numerics.Vector3 expected, System.Numerics.Vector3 actual) =>
+            Assert.True(System.Numerics.Vector3.Distance(expected, actual) < 0.005f, $"expected {expected}, got {actual}");
+        Close(flownHand.Transform(offset), overlayInSteamVr.Position);
+        // Seen from the flown head it sits where the physical hand is seen from the physical head.
+        var fromHead = (flight * Head).Inverse() * overlayInSteamVr;
+        Close((Head.Inverse() * Hand).Transform(offset), fromHead.Position);
+        if (which == 0) Near(Hand.Transform(offset), overlayInSteamVr.Position);
+    }
+
     [Fact]
     public void QuadFacesTheHeadAndSitsAboveTheBackOfTheHand()
     {

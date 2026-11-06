@@ -36,7 +36,9 @@ public sealed partial class MainViewModel
                 CompassState.Off => Strings["settings.compass.status.off"],
                 CompassState.WaitingForFlight => Strings["settings.compass.status.waitingForFlight"],
                 CompassState.WaitingForTracking => Strings.Format("settings.compass.status.waitingForTracking", hand),
-                CompassState.Visible => Strings.Format("settings.compass.status.visible", hand),
+                CompassState.Visible => status.Detail is { } retries
+                    ? Strings.Format("settings.compass.status.visible", hand) + "\n" + Strings.Format("settings.compass.status.uploadRetries", retries)
+                    : Strings.Format("settings.compass.status.visible", hand),
                 _ => Strings.Format("settings.compass.status.unavailable", status.Detail ?? "")
             };
         }

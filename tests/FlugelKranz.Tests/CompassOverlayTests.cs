@@ -132,7 +132,65 @@ public class CompassOverlayTests
             overlay.Publish(Frame(head, LeftHand), 3, 4);
             overlay.Tick();
         }
-        Assert.InRange(overlay.ImagesDrawn, 15, 31);
+        // At most 10 a second (every 100 ms), so SetOverlayRaw memory blocks do not pile up.
+        Assert.InRange(overlay.ImagesDrawn, 5, 11);
+    }
+
+    [Fact]
+    public void RefusedUploadsKeepTheCompassAndRetryLater()
+    {
+        // 2026-11-06 19:30: "Refusing to create memory block because 201 blocks are already outstanding".
+        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        overlay.Publish(Frame(Head, LeftHand), 3, 4);
+        overlay.Tick();
+        Assert.True(api.Visible);
+        api.RefuseImages = 3;
+        int calls = api.ImageCalls;
+        for (int i = 1; i <= 200; i++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(15));
+            var head = Head with { Position = Head.Position + new Vector3(i * 0.01f, 0, 0) };
+            overlay.Publish(Frame(head, LeftHand), 3, 4);
+            overlay.Tick();
+            Assert.True(api.Visible, $"still shown at tick {i}");
+            Assert.Equal(CompassState.Visible, overlay.Status.State);
+        }
+        Assert.Equal(3, overlay.UploadFailures);
+        Assert.Equal("3", overlay.Status.Detail);
+        Assert.True(overlay.ImagesDrawn >= 3, "uploads resume after the retry delay");
+        // 3 s of 100 ms-spaced uploads would be about 30 calls; the backoff kept it well below.
+        Assert.InRange(api.ImageCalls - calls, 4, 30);
+    }
+
+    [Fact]
+    public void FirstImageRefusedShowsNothingUntilOneArrives()
+    {
+        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        api.RefuseImages = 1;
+        overlay.Publish(Frame(Head, LeftHand), 3, 4);
+        overlay.Tick();
+        Assert.False(api.Visible);
+        time.Advance(TimeSpan.FromMilliseconds(300));
+        overlay.Tick();
+        Assert.True(api.Visible);
+    }
+
+    [Fact]
+    public void ShortSteamVrErrorsDoNotDisableTheCompassButLastingOnesDo()
+    {
+        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left });
+        overlay.Publish(Frame(Head, LeftHand), 3, 4);
+        api.FailTransforms = 10;
+        for (int i = 0; i < 12; i++) { overlay.Tick(); time.Advance(TimeSpan.FromMilliseconds(15)); }
+        Assert.Equal(CompassState.Visible, overlay.Status.State);
+        Assert.True(api.Visible);
+
+        api.FailTransforms = int.MaxValue;
+        // Turning the wrist changes the transform on the hand, so every update tries (and fails) to send it.
+        overlay.Publish(Frame(Head, LeftHand with { Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.5f) * LeftHand.Orientation }), 3, 4);
+        for (int i = 0; i < 250; i++) { overlay.Tick(); time.Advance(TimeSpan.FromMilliseconds(15)); }
+        Assert.Equal(CompassState.Unavailable, overlay.Status.State);
+        Assert.Contains("RequestFailed", overlay.Status.Detail);
     }
 
     [Fact]
@@ -291,10 +349,19 @@ public class CompassOverlayTests
         public uint Device = uint.MaxValue;
         public float Width;
         public RigidPose Transform;
+        public int RefuseImages, FailTransforms, ImageCalls;
         public string? Create() { Creates++; return CreateError; }
         public void SetWidth(float metres) => Width = metres;
-        public void SetTransform(uint device, RigidPose overlayInDevice) { Device = device; Transform = overlayInDevice; Transforms++; }
-        public void SetImage(byte[] straightRgba, int size) { }
+        public void SetTransform(uint device, RigidPose overlayInDevice)
+        {
+            if (FailTransforms > 0) { FailTransforms--; throw new InvalidOperationException("SetOverlayTransformTrackedDeviceRelative: RequestFailed"); }
+            Device = device; Transform = overlayInDevice; Transforms++;
+        }
+        public void SetImage(byte[] straightRgba, int size)
+        {
+            ImageCalls++;
+            if (RefuseImages > 0) { RefuseImages--; throw new InvalidOperationException("SetOverlayRaw: RequestFailed"); }
+        }
         public void Show() => Visible = true;
         public void Hide() => Visible = false;
         public void Dispose() => Disposed = true;

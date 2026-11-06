@@ -676,6 +676,46 @@ no icon.
 32, 48 and 256 px entries Windows asks for at minimum. The published exe was
 checked to carry the icon resource.
 
+## 2026-11-06 — Gravity compass: refused uploads no longer remove it
+
+Affected files: `src/FlugelKranz.OpenVR/CompassOverlay.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Compass.cs`, both language tables,
+`tests/FlugelKranz.Tests/CompassOverlayTests.cs` and
+`tests/FlugelKranz.Tests/CompassMathTests.cs`.
+
+In the first VR test (2026-11-06 19:27, Quest Link) the compass showed on the
+right wrist and then disappeared while flying. `vrclient_FlugelKranz.txt`
+has, at 19:30:29, "Refusing to create memory block because 201 blocks are
+already outstanding" and "SetOverlayRaw failed to create a memory block for
+256 x 256 texture": every `SetOverlayRaw` hands the compositor a shared
+memory block, and at up to 30 uploads a second the compositor fell 200 behind.
+The compass treated that one error as fatal, marked itself unavailable and
+hid for the rest of the session.
+
+Now an image is uploaded at most 10 times a second and only when the view of
+the sphere turns by more than 3° (was 30 / 1.5°); the held image stays
+physically correct in between. A refused upload keeps the previous image on
+screen and is retried after 250 ms, doubling up to 2 s. Other SteamVR errors
+are retried on the next update, and only 3 s of nothing but errors marks the
+compass unavailable. The settings status shows how many uploads were
+refused. Fewer uploads also mean less copying into the compositor.
+
+The placement was checked again: SteamVR places a device-relative overlay on
+the controller pose it has, which the driver has already flown, and draws it
+from the flown head, so the quad lands on the flown hand; the log shows no
+sign of misplacement before the upload failure. A new test pins this down
+(identity flight: on the hand; translated and rotated flight: on the flown
+hand, and at the physical hand as seen from the head).
+
+### Testing
+
+`CompassOverlayTests`: three refused uploads keep the compass visible with
+the status count and the uploads resume after the backoff; a refused first
+image shows nothing until one arrives; 10 failing transform calls do not
+disable it, 3.75 s of them do; the redraw cap is now 10 a second.
+`CompassMathTests`: the placement test above. 247 C# tests, 244 pass (the 3
+known `[AvaloniaFact]` discovery errors). Not yet seen in VR.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

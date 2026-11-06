@@ -98,6 +98,7 @@
     "settings.compass.status.waitingForFlight": "飛行 ON の間だけ表示します（現在は非表示）。",
     "settings.compass.status.waitingForTracking": "トラッキングを待っています: コントローラー（{0}）または HMD。",
     "settings.compass.status.visible": "表示中（{0}）",
+    "settings.compass.status.uploadRetries": "SteamVR が画像の更新を {0} 回断りました。前の画像のまま再試行しています。",
     "settings.compass.status.unavailable": "SteamVR のオーバーレイを使えないため、コンパスは表示できません（飛行には影響しません）: {0}",
     "settings.diagnostics.header": "診断ログ",
     "settings.detailedDiagnostics.enabled": "詳細診断",
