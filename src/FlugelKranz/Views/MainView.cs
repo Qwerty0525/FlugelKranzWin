@@ -272,8 +272,45 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             Row(model.Strings, "settings.commandLoop.highRate",
                 new CheckBox { Name = "HighRateCommandLoop" }.IsChecked(model, x => x.HighRateCommandLoop),
                 ResetButton(model, x => x.ResetHighRateCommandLoopCommand)),
-            Note(model.Strings, "settings.commandLoop.note")
+            Note(model.Strings, "settings.commandLoop.note"),
+            Divider(),
+            DiagnosticsSection(model)
         );
+
+    /// <summary>"Save diagnostic logs": a list of what goes in, then Save / Cancel.</summary>
+    private static Control DiagnosticsSection(MainViewModel model) =>
+        new StackPanel().Spacing(8).Children(
+            Header(model.Strings, "settings.diagnostics.header"),
+            Note(model.Strings, "settings.diagnostics.when"),
+            Localize(model.Strings, new Button { Name = "PrepareDiagnosticLogs" }, (b, s) => b.Content = s, "settings.diagnostics.collect")
+                .IsEnabled(model, x => x.CanUseDiagnostics)
+                .Command(model, x => x.PrepareDiagnosticLogsCommand),
+            new Border
+            {
+                Padding = new Thickness(10),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                BorderBrush = Brushes.Gray
+            }
+                .IsVisible(model, x => x.IsDiagnosticPlanVisible)
+                .Child(new StackPanel().Spacing(8).Children(
+                    new TextBlock().Text(model, x => x.DiagnosticPlanHeader).FontWeight(FontWeight.SemiBold)
+                        .TextWrapping(TextWrapping.Wrap),
+                    new SelectableTextBlock { Name = "DiagnosticFileList", FontFamily = new FontFamily("Consolas, Menlo, monospace"), FontSize = 12 }
+                        .Text(model, x => x.DiagnosticFileList).TextWrapping(TextWrapping.Wrap),
+                    Note(model.Strings, "settings.diagnostics.redaction"),
+                    new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(
+                        Localize(model.Strings, new Button { Name = "SaveDiagnosticLogs" }, (b, s) => b.Content = s, "settings.diagnostics.save")
+                            .IsEnabled(model, x => x.CanUseDiagnostics)
+                            .Command(model, x => x.SaveDiagnosticLogsCommand),
+                        Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.diagnostics.cancel")
+                            .IsEnabled(model, x => x.CanUseDiagnostics)
+                            .Command(model, x => x.CancelDiagnosticLogsCommand)))),
+            new SelectableTextBlock { Name = "DiagnosticStatus" }.Text(model, x => x.DiagnosticStatus).TextWrapping(TextWrapping.Wrap),
+            Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.diagnostics.openFolder")
+                .IsVisible(model, x => x.HasDiagnosticArchive)
+                .Command(model, x => x.OpenDiagnosticFolderCommand),
+            Note(model.Strings, "settings.diagnostics.share"));
 
     private static TextBlock Note(UiStrings strings, string key) =>
         Localize(strings, new TextBlock(), (t, s) => t.Text = s, key).TextWrapping(TextWrapping.Wrap).Opacity(0.75);

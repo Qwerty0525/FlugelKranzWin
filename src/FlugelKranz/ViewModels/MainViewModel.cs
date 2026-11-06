@@ -145,7 +145,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         nameof(DragSmoothLabel), nameof(TurnSmoothLabel), nameof(InfiniteDragSmoothLabel),
         nameof(InfiniteTurnSmoothLabel), nameof(InfiniteTurnHeadSmoothLabel), nameof(InfiniteWalkingBoostLabel),
         nameof(BrakeRampLabel), nameof(ValveIndexPositionDeadZoneLabel), nameof(ValveIndexForceThresholdLabel),
-        nameof(ValveIndexForceStatus)
+        nameof(ValveIndexForceStatus), nameof(DiagnosticStatus), nameof(DiagnosticFileList), nameof(DiagnosticPlanHeader)
     ];
 
     /// <summary>
@@ -210,6 +210,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     {
         this.enableIndependentDrag = enableIndependentDrag;
         settingsStore = new(settingsPath);
+        DiagnosticSourcesFactory = () => Diagnostics.DiagnosticSources.ForThisPc(settingsStore.Path);
         var savedSettings = settingsStore.Load();
         Strings.SetLanguage(settingsStore.Language);
         ApplySettings(savedSettings);

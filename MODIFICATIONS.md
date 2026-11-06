@@ -357,6 +357,60 @@ and that a noisy 1 m/s drag released at 1/64 s and at 3 ms ticks glides
 0.40–0.55 m and stops after 1–2 s at both rates (without the window the 3 ms
 glide stops after 0.34 m). Not yet flown.
 
+## 2026-11-06 — Save diagnostic logs from the app
+
+Affected files: the new `src/FlugelKranz/Diagnostics/DiagnosticLogCollector.cs`
+and `src/FlugelKranz/ViewModels/MainViewModel.Diagnostics.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.cs`,
+`src/FlugelKranz/Views/MainView.cs`, both language tables and the new
+`tests/FlugelKranz.Tests/DiagnosticLogTests.cs`.
+
+The settings panel has a **Diagnostic logs** section with a **Save diagnostic
+logs…** button. It is the in-app version of `tools/collect-vr-logs.ps1` (kept
+outside this repository): the same files, from the same places —
+SteamVR `vrserver.txt` / `vrserver.previous.txt`, compositor, `vrmonitor`,
+`driver_vrlink`, the newest `vrclient_*` for FlugelKranz, VRChat, SlimeVR and
+AdvancedSettings, `steamvr.vrsettings`, `openvrpaths.vrpath`, the SlimeVR
+driver / bindings / server / GUI logs, the Virtual Desktop streamer, OpenXR,
+service and setup logs, and FlugelKranz's own `config.json` — and the same
+`summary.txt` (SteamVR driver load lines, FlugelKranz driver lines, FrameAudit
+headAge / missed / held / identityBypass for all and flying seconds,
+SlimeVR / VD warning counts, the file list). The summary adds one section:
+DriverAudit seconds grouped by the command interval most changes fell in
+(<10 ms, 10–20 ms, ≥20 ms), with mean / max `commandStepM` and skew for
+each, so a session flown with the high-rate loop off and then on shows both
+halves apart.
+
+A first click only lists what would go in (archive name, size, last write
+time); **Save zip** then writes everything into one zip under
+`Documents\FlugelKranz Logs\FlugelKranz-logs-<time>.zip`, and **Show in
+folder** opens Explorer on it. Before writing, every file and the summary are
+redacted: the user-profile path in any spelling (`C:\Users\name`,
+`c:/users/name`, JSON-escaped `C:\Users\name`) becomes `%USERPROFILE%`,
+and the Windows user name and the PC name, as whole words, become `<user>` /
+`<pc>` (names under three characters are only removed inside the profile
+path). Other content such as device serials or network addresses is kept, and
+the UI says so. Source files are opened read-only with sharing, so logs still
+held open by SlimeVR or Virtual Desktop are read without disturbing them. The
+app makes no network calls; the note by the button points to GitHub Issues at
+github.com/Qwerty0525/FlugelKranzWin for reports, and says to press the button
+right after the problem session, after closing SteamVR and before starting it
+again (SteamVR overwrites `vrserver.txt` on start; with Drag on, reopening
+FlugelKranz connects to SteamVR and can start it).
+
+### Testing
+
+`DiagnosticLogTests` covers the redaction rules (every path spelling, whole
+tokens only, short names, a differently named profile folder) and builds a
+fake Steam / SlimeVR / VD / config layout to check the planned file list, the
+zip entries, that no entry contains the user or PC name, the summary numbers,
+and that every source file's hash is unchanged afterwards; a headless UI
+test opens the section, lists, saves and checks the status. The summary was
+also built from the 2026-11-06 14:36 flight's collected logs and matched the
+script's summary.txt line for line apart from the order of equal counts.
+205 C# tests, 202 pass (the 3 known `[AvaloniaFact]` discovery errors). Not
+tried in the real app.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
