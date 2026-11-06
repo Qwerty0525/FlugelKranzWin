@@ -1,6 +1,7 @@
 <!-- Language switch: one badge per line (they render side by side). Keep the same list in every README*.md; the current language uses the darker color. -->
 [![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-8b0000)](README.md)
 [![English](https://img.shields.io/badge/lang-English-007ec6)](README.en.md)
+[![한국어](https://img.shields.io/badge/lang-%ED%95%9C%EA%B5%AD%EC%96%B4-2ea44f)](README.ko.md)
 
 # FlugelKranzWin
 
@@ -11,6 +12,8 @@ Windows x64 / SteamVR 向けの自由飛行・無限歩行ツールです。慣�
 ## 導入
 
 Windows x64、SteamVR、対応 HMD・コントローラー、および同梱の専用 SteamVR ドライバーが必要です。[ビルド・導入・更新手順](WINDOWS.md) に従ってアプリとドライバーを配置し、フレーム姿勢補正を設定してください。
+
+ビルドせずに使う場合は、[Releases](https://github.com/Qwerty0525/FlugelKranzWin/releases) の zip を展開し、[リリース zip からの導入](WINDOWS.md#リリース-zip-からの導入) の手順でドライバーを登録してください。
 
 Quest 2 + Touch / Virtual Desktop では、時刻ベースの補正を有効にした構成で、回転保持中および回転操作中の頭部運動で、黒い縁・暗転・ジッターが改善したとの実機報告を得ています（2026-09-13）。その後に報告された視界のふらつきも、恒等変換時のパススルーと回転保持中の元のフレーム予測を維持する修正後、解消したとの実機報告を得ています（2026-09-14）。設定と検証範囲は [WINDOWS.md](WINDOWS.md#動作確認) に記載しています。
 

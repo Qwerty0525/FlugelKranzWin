@@ -1,3 +1,8 @@
+<!-- Language switch: one badge per line (they render side by side). Keep the same list in every WINDOWS*.md; the current language uses the darker color. -->
+[![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-8b0000)](WINDOWS.md)
+[![English](https://img.shields.io/badge/lang-English-007ec6)](WINDOWS.en.md)
+[![한국어](https://img.shields.io/badge/lang-%ED%95%9C%EA%B5%AD%EC%96%B4-2ea44f)](WINDOWS.ko.md)
+
 # FlugelKranzWin：導入・開発ガイド
 
 このリポジトリの対象は Windows x64 / SteamVR です。Linux / Monado / WiVRn 版は [親リポジトリ](https://github.com/ReinaS-64892/FlugelKranz) を参照してください。操作と慣性の仕様は [README](README.md) にまとめています。
@@ -9,6 +14,27 @@
 - ビルド時：.NET 10 SDK、MSVC x64 Build Tools、Windows SDK、CMake。
 
 配布アプリは self-contained のため、実行だけなら .NET SDK の別途導入は不要です。現時点の実機確認構成は Quest 2 + Touch / Virtual Desktop です。
+
+## リリース zip からの導入
+
+ビルドせずに使う場合は、[Releases](https://github.com/Qwerty0525/FlugelKranzWin/releases) から `FlugelKranzWin-<バージョン>-win-x64.zip`（例：`FlugelKranzWin-v0.9.0-win-x64.zip`）を入手します。中身は `FlugelKranzWin` フォルダー 1 つで、下記のビルド出力と同じ構成（`FlugelKranz.exe`、`driver/flugelkranz`、`install-driver.ps1`）のリリースビルドで、ライセンスと文書も入っています。.NET SDK や CMake は不要です。ドライバー設定 `default.vrsettings` は下記の[フレーム姿勢補正](#フレーム姿勢補正の設定)の確認済み設定になっているため、編集せずに使えます。
+
+1. SteamVR を終了します。
+2. zip を「すべて展開」し、`FlugelKranzWin` フォルダーを使い続ける場所へ置きます。ドライバーはこのフォルダーの場所で登録されるため、zip の中から直接実行しないでください。
+3. 旧版や上流のビルドなど、別のフォルダーで FlugelKranz のドライバーを登録済みの場合は、そのフォルダーで `./install-driver.ps1 -Uninstall` を実行し、登録が 2 か所にならないようにします。
+4. `FlugelKranzWin` フォルダーで PowerShell を開き（フォルダーを右クリック →「ターミナルで開く」）、ドライバーを登録します。
+5. SteamVR を起動し、HMD と両手の追跡を確認してから、診断・起動します。続きは README の[最初の操作](README.md#最初の操作)を参照してください。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./install-driver.ps1
+# SteamVR を起動してから：
+./FlugelKranz.exe --diagnose | Out-Host
+./FlugelKranz.exe
+```
+
+`-ExecutionPolicy Bypass` はこの 1 回の実行に限ってスクリプトを許可するもので、Windows の設定は変更しません。スクリプトを実行できる環境では `./install-driver.ps1` でも同じです。エクスプローラーから `FlugelKranz.exe` を開いて Windows SmartScreen の警告が出た場合は、「詳細情報」→「実行」を選びます。F モードの頭部操縦（既定で有効）には SteamVR の開発者設定 **Experimental overlay input overrides** が必要です（[README](README.md#頭部操縦の試作windows--f-モード)）。
+
+更新するときは FlugelKranz と SteamVR を終了し、新しい `FlugelKranzWin` フォルダーの中身を今のフォルダーへ上書きコピーします（登録はそのまま使えます）。`default.vrsettings` を編集していた場合は置き換わるため、もう一度確認してください。別のフォルダーへ移す場合は[更新と登録解除](#更新と登録解除)のとおり登録を移します。
 
 ## ビルドと初回導入
 

@@ -1,6 +1,7 @@
 <!-- Language switch: one badge per line (they render side by side). Keep the same list in every README*.md; the current language uses the darker color. -->
 [![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-e05d44)](README.md)
 [![English](https://img.shields.io/badge/lang-English-003d7a)](README.en.md)
+[![한국어](https://img.shields.io/badge/lang-%ED%95%9C%EA%B5%AD%EC%96%B4-2ea44f)](README.ko.md)
 
 # FlugelKranzWin
 
@@ -10,9 +11,11 @@ This repository is a Windows derivative of [FlugelKranz](https://github.com/Rein
 
 ## Installation
 
-You need Windows x64, SteamVR, a supported HMD and controllers, and the bundled dedicated SteamVR driver. Follow the [build, installation and update instructions](WINDOWS.md) (Japanese) to put the app and the driver in place, and set up frame pose correction.
+You need Windows x64, SteamVR, a supported HMD and controllers, and the bundled dedicated SteamVR driver. Follow the [build, installation and update instructions](WINDOWS.en.md) to put the app and the driver in place, and set up frame pose correction.
 
-On Quest 2 + Touch / Virtual Desktop, with time-based correction enabled, a report from real hardware says that black edges, darkening and jitter during head movement, both while a rotation is held and while rotating, have improved (2026-09-13). A wobble in the view that was reported afterwards has also been reported as resolved on real hardware, after a fix that passes identity transforms through unchanged and keeps the original frame prediction while a rotation is held (2026-09-14). The settings and the scope of testing are described in [WINDOWS.md](WINDOWS.md#動作確認) (Japanese).
+To use it without building, extract the zip from [Releases](https://github.com/Qwerty0525/FlugelKranzWin/releases) and register the driver as described in [Install from the release zip](WINDOWS.en.md#install-from-the-release-zip).
+
+On Quest 2 + Touch / Virtual Desktop, with time-based correction enabled, a report from real hardware says that black edges, darkening and jitter during head movement, both while a rotation is held and while rotating, have improved (2026-09-13). A wobble in the view that was reported afterwards has also been reported as resolved on real hardware, after a fix that passes identity transforms through unchanged and keeps the original frame prediction while a rotation is held (2026-09-14). The settings and the scope of testing are described in [WINDOWS.en.md](WINDOWS.en.md#verification).
 
 ## First steps
 
@@ -136,7 +139,7 @@ FlugelKranz.exe (Avalonia / Windows)
 
 The flown pose passed to the game is kept separate from the physical pose passed to the HMD display correction. Control calculations use the pose from before the transform, which prevents feedback from flight results back into the input. Chaperone and VRChat's horizon settings are not rewritten.
 
-For development steps, see [WINDOWS.md](WINDOWS.md) (Japanese); for coordinate transforms, IPC and render correction, see the [driver documentation](native/driver/README.md) (Japanese); for working conventions, see [AGENTS.md](AGENTS.md) (Japanese).
+For development steps, see [WINDOWS.en.md](WINDOWS.en.md); for coordinate transforms, IPC and render correction, see the [driver documentation](native/driver/README.md) (Japanese); for working conventions, see [AGENTS.md](AGENTS.md) (Japanese).
 
 ## Upstream, reference implementations and license
 
