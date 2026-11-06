@@ -18,11 +18,14 @@ public class CompassOverlayTests
     private static InputFrame Frame(RigidPose head, RigidPose left, bool leftTracked = true) =>
         new(head, true, new(left, 0, 0, 0, leftTracked), new(new(Quaternion.Identity, new(0.2f, 1.1f, -0.3f)), 0, 0, 0, true));
 
+    /// <summary>The compass is off by default; these tests turn it on.</summary>
+    private static readonly CompassSettings On = CompassSettings.Default with { Enabled = true };
+
     private static (CompassOverlay Overlay, FakeApi Api, DriverFlightRuntimeTests.ManualTime Time, Func<CompassSettings, CompassSettings> Set)
         Create(CompassSettings? initial = null, CountingRenderer? renderer = null, FakeApi? api = null)
     {
         api ??= new FakeApi();
-        var settings = initial ?? CompassSettings.Default;
+        var settings = initial ?? On;
         var time = new DriverFlightRuntimeTests.ManualTime();
         var fake = api;
         var options = new CompassOptions(() => settings, renderer ?? new CountingRenderer()) { Api = _ => fake, RunThread = false };
@@ -31,7 +34,7 @@ public class CompassOverlayTests
     }
 
     private static CompassSettings Always(CompassHand hand = CompassHand.Left) =>
-        CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = hand };
+        On with { Visibility = CompassVisibility.Always, Hand = hand };
 
     /// <summary>The head circling the left-hand sphere at a constant distance, about 1.1 degrees a step.</summary>
     private static RigidPose Orbiting(int step)
@@ -67,36 +70,48 @@ public class CompassOverlayTests
     }
 
     [Fact]
+    public void OffByDefault()
+    {
+        var (overlay, api, _, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        overlay.Publish(Frame(Head, LeftHand), 3, 4);
+        overlay.SetFlightActive(true);
+        overlay.Tick();
+        Assert.Equal(CompassState.Off, overlay.Status.State);
+        Assert.False(api.Visible);
+        Assert.Equal(0, api.Creates);
+    }
+
+    [Fact]
     public void HandSwitchAlwaysAndOffFollowTheSettingsLive()
     {
         var (overlay, api, time, set) = Create();
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
-        set(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        set(On with { Visibility = CompassVisibility.Always });
         overlay.Tick();
         Assert.True(api.Visible);
         Assert.Equal(4u, api.Device);
         Assert.Equal(1, overlay.ImagesDrawn);
 
         // Flipping hands mid-session moves it on the next update, with an image for the new view.
-        set(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left });
+        set(On with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left });
         time.Advance(TimeSpan.FromMilliseconds(15));
         overlay.Tick();
         Assert.True(api.Visible);
         Assert.Equal(3u, api.Device);
         Assert.Equal(CompassHand.Left, overlay.Status.Hand);
         Assert.Equal(2, overlay.ImagesDrawn);
-        set(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        set(On with { Visibility = CompassVisibility.Always });
         time.Advance(TimeSpan.FromMilliseconds(15));
         overlay.Tick();
         Assert.Equal(4u, api.Device);
         Assert.Equal(3, overlay.ImagesDrawn);
         // A colour change redraws at once too.
-        set(CompassSettings.Default with { Visibility = CompassVisibility.Always, Glow = CompassGlow.Amber });
+        set(On with { Visibility = CompassVisibility.Always, Glow = CompassGlow.Amber });
         time.Advance(TimeSpan.FromMilliseconds(15));
         overlay.Tick();
         Assert.Equal(4, overlay.ImagesDrawn);
 
-        set(CompassSettings.Default with { Enabled = false });
+        set(On with { Enabled = false });
         overlay.Tick();
         Assert.False(api.Visible);
         Assert.Equal(CompassState.Off, overlay.Status.State);
@@ -140,15 +155,6 @@ public class CompassOverlayTests
         Assert.Equal(1, overlay.ImagesDrawn);
         Assert.True(api.Transforms > 30, $"{api.Transforms} transform updates");
 
-        // Flight turning the whole world does not redraw either: the image is the physical view.
-        for (int i = 1; i <= 20; i++)
-        {
-            time.Advance(TimeSpan.FromMilliseconds(15));
-            overlay.PublishFlight(new(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, i * 0.1f), new(i, 0, 0)));
-            overlay.Tick();
-        }
-        Assert.Equal(1, overlay.ImagesDrawn);
-
         // Moving the head around the sphere does, capped at one image per 30 ms (every other 15 ms tick).
         for (int i = 1; i <= 66; i++)
         {
@@ -161,9 +167,58 @@ public class CompassOverlayTests
     }
 
     [Fact]
+    public void FlightRedrawsOnlyForTheWorldDownDot()
+    {
+        // Without the world-down dot the image is the physical view: flight never redraws it.
+        var (hidden, _, hiddenTime, _) = Create(Always() with { ShowWorldDown = false });
+        hidden.Publish(Frame(Head, LeftHand), 3, 4);
+        hidden.Tick();
+        for (int i = 1; i <= 20; i++)
+        {
+            hiddenTime.Advance(TimeSpan.FromMilliseconds(15));
+            hidden.PublishFlight(new(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, i * 0.1f), new(i, 0, 0)));
+            hidden.Tick();
+        }
+        Assert.Equal(1, hidden.ImagesDrawn);
+
+        var renderer = new CountingRenderer();
+        var (overlay, _, time, set) = Create(Always(), renderer);
+        overlay.Publish(Frame(Head, LeftHand), 3, 4);
+        overlay.Tick();
+        Assert.True(Vector3.Distance(renderer.LastAxes.Down, renderer.LastAxes.WorldDown) < 1e-4f, "no flight: the dots coincide");
+        // Yaw turns the world about its down: no redraw.
+        for (int i = 1; i <= 20; i++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(15));
+            overlay.PublishFlight(new(Quaternion.CreateFromAxisAngle(Vector3.UnitY, i * 0.1f), new(i, 0, 0)));
+            overlay.Tick();
+        }
+        Assert.Equal(1, overlay.ImagesDrawn);
+        // Rolling moves the world's down in the view: redrawn, at most every 30 ms.
+        var down = renderer.LastAxes.Down;
+        for (int i = 1; i <= 20; i++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(15));
+            overlay.PublishFlight(new(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, i * 0.05f), Vector3.Zero));
+            overlay.Tick();
+        }
+        Assert.InRange(overlay.ImagesDrawn - 1, 9, 11);
+        Assert.True(Vector3.Distance(down, renderer.LastAxes.Down) < 1e-4f, "real down stays");
+        Assert.InRange(MathF.Acos(Vector3.Dot(renderer.LastAxes.Down, Vector3.Normalize(renderer.LastAxes.WorldDown))) * 180 / MathF.PI, 50, 58);
+
+        // Hiding it redraws once without the dot.
+        int images = overlay.ImagesDrawn;
+        set(Always() with { ShowWorldDown = false });
+        time.Advance(TimeSpan.FromMilliseconds(15));
+        overlay.Tick();
+        Assert.Equal(images + 1, overlay.ImagesDrawn);
+        Assert.Equal(Vector3.Zero, renderer.LastAxes.WorldDown);
+    }
+
+    [Fact]
     public void RefusedImagesKeepTheCompassAndRetryLater()
     {
-        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        var (overlay, api, time, _) = Create(On with { Visibility = CompassVisibility.Always });
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
         overlay.Tick();
         Assert.True(api.Visible);
@@ -188,7 +243,7 @@ public class CompassOverlayTests
     [Fact]
     public void FirstImageRefusedShowsNothingUntilOneArrives()
     {
-        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        var (overlay, api, time, _) = Create(On with { Visibility = CompassVisibility.Always });
         api.RefuseImages = 1;
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
         overlay.Tick();
@@ -262,7 +317,7 @@ public class CompassOverlayTests
     {
         var api = new FakeApi { CreateError = "IVROverlay is not available." };
         var session = new FakeSession();
-        var options = new CompassOptions(() => CompassSettings.Default, new CountingRenderer()) { Api = _ => api, RunThread = false };
+        var options = new CompassOptions(() => On, new CountingRenderer()) { Api = _ => api, RunThread = false };
         using var runtime = new DriverFlightRuntime(session, () => new FakeDriver(), null, options);
         runtime.SetFlightActive(true);
         runtime.ReadPhysical();
@@ -280,7 +335,7 @@ public class CompassOverlayTests
     {
         var api = new FakeApi();
         var session = new FakeSession();
-        var options = new CompassOptions(() => CompassSettings.Default, new CountingRenderer()) { Api = _ => api, RunThread = false };
+        var options = new CompassOptions(() => On, new CountingRenderer()) { Api = _ => api, RunThread = false };
         var runtime = new DriverFlightRuntime(session, () => new FakeDriver(), null, options);
         runtime.SetFlightActive(true);
         var flight = new RigidPose(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2), new(1, 2, 3));
@@ -349,6 +404,37 @@ public class CompassOverlayTests
         renderer.Render(LookingUp, CompassGlow.Amber, pixels);
         var amber = Pixel(pixels, size, 0, -0.707f);
         Assert.True(amber.R > amber.B + 60, $"amber dot {amber}");
+    }
+
+    [Fact]
+    public void WorldDownIsAWhiteDotOrRingUnderTheGlowingMarker()
+    {
+        using var renderer = new CompassRenderer();
+        int size = renderer.Size;
+        var pixels = new byte[size * size * 4];
+
+        // No flight: the dots coincide and the glowing real-down dot is drawn on top.
+        renderer.Render(LookingUp with { WorldDown = LookingUp.Down }, CompassGlow.Teal, pixels);
+        var shared = Pixel(pixels, size, 0, -0.707f);
+        Assert.True(shared.G > shared.R + 40, $"glowing dot on top {shared}");
+
+        // Rolled: a small plain white dot on the near half, left of centre here.
+        var front = Vector3.Normalize(new(-0.6f, 0, 0.8f));
+        renderer.Render(LookingDown with { WorldDown = front }, CompassGlow.Teal, pixels);
+        var dot = Pixel(pixels, size, -0.6f, 0);
+        Assert.True(dot.A > 200 && dot.R > 220 && dot.G > 220 && dot.B > 220, $"white dot {dot}");
+
+        // On the far half: a faint white ring, hollow in the middle.
+        renderer.Render(LookingDown with { WorldDown = Vector3.Normalize(new(-0.6f, 0, -0.8f)) }, CompassGlow.Teal, pixels);
+        float ring = 0.02f * size / (size * CompassMath.SphereFraction / 2);
+        var middle = Pixel(pixels, size, -0.6f, 0);
+        var edge = Pixel(pixels, size, -0.6f - ring, 0);
+        Assert.True(edge.A > middle.A + 15 && edge.R > 150, $"ring {edge} around {middle}");
+
+        // Not shown: nothing white there.
+        renderer.Render(LookingDown, CompassGlow.Teal, pixels);
+        var none = Pixel(pixels, size, -0.6f, 0);
+        Assert.True(none.R < 200, $"no dot {none}");
     }
 
     [Theory]
@@ -420,8 +506,10 @@ public class CompassOverlayTests
         foreach (var (name, flight) in flights)
         {
             var view = CompassMath.Compute(flight, levelHead, levelBall, Vector3.Zero);
-            File.WriteAllBytes(Path.Combine(folder, $"navball-flight-{name}-in-view.png"),
-                InView(renderer.RenderPng(view.Axes, CompassGlow.Teal), renderer.Size, flight, levelHead, name));
+            var png = renderer.RenderPng(view.Axes, CompassGlow.Teal);
+            File.WriteAllBytes(Path.Combine(folder, $"navball-flight-{name}.png"), png);
+            File.WriteAllBytes(Path.Combine(folder, $"navball-flight-{name}-dark.png"), OnDark(png, renderer.Size, $"flight {name}"));
+            File.WriteAllBytes(Path.Combine(folder, $"navball-flight-{name}-in-view.png"), InView(png, renderer.Size, flight, levelHead, name));
         }
 
         // Cost of one image: Skia drawing on the CPU, then the copy into a reused D3D11 texture.
@@ -496,7 +584,7 @@ public class CompassOverlayTests
         canvas.DrawImage(texture, new SKRect(width / 2f - size / 2f, height / 2f - size / 2f + 40, width / 2f + size / 2f, height / 2f + size / 2f + 40));
         using var label = new SKPaint { Color = new SKColor(0x90, 0x98, 0xa8), IsAntialias = true };
         using var font = new SKFont { Size = 14 };
-        canvas.DrawText($"flight {name}: flown world horizon (game) vs navball (real)", 12, 22, font, label);
+        canvas.DrawText($"flight {name}: flown world horizon (game) vs navball (real; white dot = world down)", 12, 22, font, label);
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);
         return data.ToArray();

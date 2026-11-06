@@ -26,6 +26,8 @@ public class CompassSettingsTests
             Assert.Equal("right", node["compass"]!["hand"]!.GetValue<string>());
             Assert.Equal("whileFlying", node["compass"]!["visibility"]!.GetValue<string>());
             Assert.Equal("teal", node["compass"]!["glow"]!.GetValue<string>());
+            Assert.False(node["compass"]!["enabled"]!.GetValue<bool>());
+            Assert.True(node["compass"]!["showWorldDown"]!.GetValue<bool>());
 
             node.Remove("compass");
             File.WriteAllText(path, node.ToJsonString());
@@ -33,14 +35,15 @@ public class CompassSettingsTests
 
             node["compass"] = new JsonObject
             {
-                ["enabled"] = false, ["hand"] = "left", ["visibility"] = "always", ["glow"] = "amber", ["sizeCentimetres"] = 99
+                ["enabled"] = true, ["hand"] = "left", ["visibility"] = "always", ["glow"] = "amber", ["showWorldDown"] = false,
+                ["sizeCentimetres"] = 99
             };
             File.WriteAllText(path, node.ToJsonString());
             var loaded = new SettingsStore(path).Load().Compass;
             Assert.Equal(new CompassSettings
             {
-                Enabled = false, Hand = CompassHand.Left, Visibility = CompassVisibility.Always,
-                Glow = CompassGlow.Amber, SizeCentimetres = CompassSettings.MaximumSizeCentimetres
+                Enabled = true, Hand = CompassHand.Left, Visibility = CompassVisibility.Always,
+                Glow = CompassGlow.Amber, ShowWorldDown = false, SizeCentimetres = CompassSettings.MaximumSizeCentimetres
             }, loaded);
         }
         finally { Directory.Delete(root, true); }
@@ -71,7 +74,16 @@ public class CompassSettingsTests
             Assert.Equal(new bool?[] { false, true }, hand.Select(b => b.IsChecked));
             Assert.Equal("Right hand", hand[1].Content);
             Assert.Equal(3, glow.Length);
+            // Off by default; turning it on shows the connection hint.
+            Assert.Equal("Off", status.Text);
+            var enabled = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "CompassEnabled");
+            Assert.False(enabled.IsChecked);
+            enabled.IsChecked = true;
             Assert.Equal("Appears once FlugelKranz is connected to SteamVR.", status.Text);
+            var worldDown = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "CompassShowWorldDown");
+            Assert.True(worldDown.IsChecked);
+            worldDown.IsChecked = false;
+            Assert.False(vm.CompassShowWorldDown);
 
             hand[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             glow[2].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -83,6 +95,8 @@ public class CompassSettingsTests
             Assert.Equal("amber", saved["glow"]!.GetValue<string>());
             Assert.Equal("always", saved["visibility"]!.GetValue<string>());
             Assert.Equal(6, saved["sizeCentimetres"]!.GetValue<double>(), 3);
+            Assert.True(saved["enabled"]!.GetValue<bool>());
+            Assert.False(saved["showWorldDown"]!.GetValue<bool>());
             Assert.Equal("Size: 6.0 cm", vm.CompassSizeLabel);
 
             if (Environment.GetEnvironmentVariable("FLUGELKRANZ_TEST_SCREENSHOT_DIR") is { Length: > 0 } directory)
@@ -106,6 +120,8 @@ public class CompassSettingsTests
             vm.ResetCompassHandCommand.Execute(null);
             vm.ResetCompassVisibilityCommand.Execute(null);
             vm.ResetCompassGlowCommand.Execute(null);
+            vm.ResetCompassShowWorldDownCommand.Execute(null);
+            Assert.True(worldDown.IsChecked);
             vm.ResetCompassSizeCommand.Execute(null);
             Assert.Equal(new bool?[] { false, true }, hand.Select(b => b.IsChecked));
             Assert.Equal(new bool?[] { true, false, false }, glow.Select(b => b.IsChecked));

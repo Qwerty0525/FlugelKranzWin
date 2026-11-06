@@ -285,7 +285,7 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             DiagnosticsSection(model)
         );
 
-    /// <summary>The gravity compass overlay: on / off, hand, when, glow colour, size, and its status.</summary>
+    /// <summary>The gravity compass overlay: on / off, hand, when, glow colour, world down, size, and its status.</summary>
     private static Control CompassSection(MainViewModel model) =>
         new StackPanel().Spacing(8).Children(
             Header(model.Strings, "settings.compass.header"),
@@ -304,6 +304,9 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                 Choice(model, "CompassGlow", nameof(MainViewModel.CompassGlowIndex), () => model.CompassGlowIndex,
                     i => model.CompassGlowIndex = i, "settings.compass.glow.teal", "settings.compass.glow.lime", "settings.compass.glow.amber"),
                 ResetButton(model, x => x.ResetCompassGlowCommand)),
+            Row(model.Strings, "settings.compass.showWorldDown",
+                new CheckBox { Name = "CompassShowWorldDown" }.IsChecked(model, x => x.CompassShowWorldDown),
+                ResetButton(model, x => x.ResetCompassShowWorldDownCommand)),
             Row(model, x => x.CompassSizeLabel,
                 new Slider { Name = "CompassSize" }.Minimum(CompassSettings.MinimumSizeCentimetres)
                     .Maximum(CompassSettings.MaximumSizeCentimetres).TickFrequency(0.1)

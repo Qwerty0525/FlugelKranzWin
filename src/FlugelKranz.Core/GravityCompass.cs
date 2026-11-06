@@ -30,11 +30,14 @@ public sealed record CompassSettings
     public const float MaximumSizeCentimetres = 8;
     public static CompassSettings Default { get; } = new();
 
-    public bool Enabled { get; init; } = true;
+    /// <summary>Off for new configs; a saved value is kept.</summary>
+    public bool Enabled { get; init; }
     /// <summary>Right by default: wrist-watch style overlays usually sit on the left wrist.</summary>
     public CompassHand Hand { get; init; } = CompassHand.Right;
     public CompassVisibility Visibility { get; init; } = CompassVisibility.WhileFlying;
     public CompassGlow Glow { get; init; } = CompassGlow.Teal;
+    /// <summary>Also mark the flown (VRChat) world's down with a small white dot.</summary>
+    public bool ShowWorldDown { get; init; } = true;
     /// <summary>Sphere diameter.</summary>
     public float SizeCentimetres { get; init; } = 4.5f;
 
@@ -50,7 +53,14 @@ public sealed record CompassSettings
 }
 
 /// <summary>The real (physical) room axes, as unit vectors.</summary>
-public readonly record struct CompassAxes(Vector3 Down, Vector3 Forward, Vector3 Right);
+public readonly record struct CompassAxes(Vector3 Down, Vector3 Forward, Vector3 Right)
+{
+    /// <summary>
+    /// The flown (VRChat) world's down in the same frame, or zero when it is not shown. Before any
+    /// flight it equals <see cref="Down"/>: the world, the tracking space and the room agree.
+    /// </summary>
+    public Vector3 WorldDown { get; init; }
+}
 
 /// <summary>
 /// One compass image and where its quad sits. Axis vectors are in the quad's frame:
@@ -137,10 +147,12 @@ public static class CompassMath
             : Billboard(flownHead.Position, Vector3.Transform(Vector3.UnitY, flownHead.Orientation), centre);
         var real = RealAxesInFlown(flight);
         var toQuad = Quaternion.Conjugate(billboard);
+        // The flown world's down is -Y of the flown (tracking) space, where the quad lives.
         var axes = new CompassAxes(
             Vector3.Transform(real.Down, toQuad),
             Vector3.Transform(real.Forward, toQuad),
-            Vector3.Transform(real.Right, toQuad));
+            Vector3.Transform(real.Right, toQuad))
+        { WorldDown = Vector3.Transform(-Vector3.UnitY, toQuad) };
         var overlayInHand = flownHand.Inverse() * new RigidPose(billboard, centre);
         var physical = Quaternion.Normalize(Quaternion.Conjugate(flight.Orientation) * billboard);
         return new(overlayInHand, axes, physical);
@@ -197,6 +209,22 @@ public static class NavballMath
     {
         var direction = PointerDirection(axes);
         return MathF.Atan2(direction.Y, direction.X) * 180 / MathF.PI;
+    }
+
+    /// <summary>True when the flown world's down is to be drawn (<see cref="CompassAxes.WorldDown"/> is set).</summary>
+    public static bool HasWorldDown(CompassAxes axes) => axes.WorldDown.LengthSquared() > 0.5f;
+
+    /// <summary>True when the flown world's down lies on the near half (a white dot); false on the far half (a faint ring).</summary>
+    public static bool WorldDownOnFront(CompassAxes axes) => axes.WorldDown.Z >= 0;
+
+    /// <summary>Where the flown world's down appears on the image.</summary>
+    public static Vector2 WorldDownInImage(CompassAxes axes) => new(axes.WorldDown.X, axes.WorldDown.Y);
+
+    /// <summary>Angle between real down and the flown world's down, in degrees (0 before any flight).</summary>
+    public static float DownsApartDegrees(CompassAxes axes)
+    {
+        float cos = Math.Clamp(Vector3.Dot(Vector3.Normalize(axes.Down), Vector3.Normalize(axes.WorldDown)), -1, 1);
+        return MathF.Acos(cos) * 180 / MathF.PI;
     }
 
     /// <summary>

@@ -180,6 +180,49 @@ public class CompassMathTests
     }
 
     [Fact]
+    public void WorldDownCoincidesWithRealDownWithoutFlightAndUnderYaw()
+    {
+        // Before flight the VRChat world, the tracking space and the room share their down;
+        // yaw turns the world about that down, so it stays put.
+        foreach (var flight in new[] { RigidPose.Identity, Yaw(90), Yaw(-37) with { Position = new(100, 5, -40) } })
+        {
+            var axes = Seen(-30, 0, flight);
+            Assert.True(NavballMath.HasWorldDown(axes));
+            Near(axes.Down, axes.WorldDown);
+            Assert.InRange(NavballMath.DownsApartDegrees(axes), 0, 0.05f);
+        }
+    }
+
+    [Fact]
+    public void FlightRoll90PutsWorldDownBesideRealDown()
+    {
+        // Flight roll +90 degrees (D about +Z): the flown head is rolled toward its left shoulder in
+        // the game, so the game world's floor appears on the left of the view while real down stays
+        // at the bottom. Looking down 30 degrees at the ball: world down is image left, on the rim.
+        var axes = Seen(-30, 0, Roll(90));
+        Assert.InRange(NavballMath.DownsApartDegrees(axes), 89.95f, 90.05f);
+        Near(-Vector3.UnitX, axes.WorldDown);
+        Assert.InRange(axes.WorldDown.Z, -1e-4f, 1e-4f); // on the rim
+        Assert.Equal(-90f, NavballMath.PointerDegrees(axes), 3);
+        // The other way round puts it on the right.
+        Near(Vector3.UnitX, Seen(-30, 0, Roll(-90)).WorldDown);
+        // Same answer as the flown world's up in the view, which the in-view previews draw.
+        var head = new RigidPose(Quaternion.CreateFromAxisAngle(Vector3.UnitX, Radians(-30)), new(0, 1.6f, 0));
+        Near(Vector3.Transform(-Vector3.UnitY, Quaternion.Conjugate(Roll(90).Orientation * head.Orientation)), axes.WorldDown);
+    }
+
+    [Fact]
+    public void FlightPitchAndUpsideDownMoveWorldDownByTheirAngle()
+    {
+        Assert.InRange(NavballMath.DownsApartDegrees(Seen(-30, 0, Pitch(45))), 44.95f, 45.05f);
+        var upsideDown = Seen(-30, 0, Roll(180));
+        Assert.InRange(NavballMath.DownsApartDegrees(upsideDown), 179.9f, 180);
+        // Real down is behind the ball here, so the world's down (opposite) is in front of it.
+        Assert.False(NavballMath.PoleOnFront(upsideDown));
+        Assert.True(NavballMath.WorldDownOnFront(upsideDown));
+    }
+
+    [Fact]
     public void LookingStraightDownTheFaceIsAllSkyAndThePointerFallsBackToDown()
     {
         // Real up points straight at the eye: no horizon on the near face, the pole is right behind
@@ -282,7 +325,8 @@ public class CompassMathTests
     public void SettingsAreClampedAndDefaultToTheApprovedDesign()
     {
         var defaults = CompassSettings.Default;
-        Assert.True(defaults.Enabled);
+        Assert.False(defaults.Enabled); // off for new configs
+        Assert.True(defaults.ShowWorldDown);
         Assert.Equal(CompassHand.Right, defaults.Hand);
         Assert.Equal(CompassVisibility.WhileFlying, defaults.Visibility);
         Assert.Equal(CompassGlow.Teal, defaults.Glow);

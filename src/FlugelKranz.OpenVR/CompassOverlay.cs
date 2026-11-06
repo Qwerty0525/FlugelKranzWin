@@ -36,8 +36,9 @@ public interface ICompassOverlayApi : IDisposable
 /// Gravity compass on a controller. The flight loop only publishes poses (cheap, under a lock); a
 /// below-normal-priority thread computes, draws and talks to IVROverlay about 64 times a second
 /// (15 ms sleeps). The transform is sent when it moves by more than 0.5 mm / 0.3°. A new image is
-/// drawn when the view of the sphere turns by more than 0.5°, at most once per 30 ms (about 32 a
-/// second with 15.6 ms ticks); a still view sends nothing. In between, the previous image stays
+/// drawn when the view of the sphere turns by more than 0.5° (or, with the world-down dot shown,
+/// when the flight turns the world's down by more than 0.5° in that view), at most once per 30 ms
+/// (about 32 a second with 15.6 ms ticks); a still view sends nothing. In between, the previous image stays
 /// fixed in the room (held billboard), so it stays correct while its facing lags slightly.
 /// Images go through one reused D3D11 texture and <c>SetOverlayTexture</c>. SetOverlayRaw is not
 /// used: every call hands the compositor a shared memory block, and on 2026-11-06 vrclient refused
@@ -79,6 +80,7 @@ public sealed class CompassOverlay : IDisposable
     private Quaternion? billboard;
     private CompassGlow imageGlow;
     private CompassHand imageHand;
+    private Vector3 imageWorldDown;
     private long lastImage;
     private long nextAttempt;
     private TimeSpan retry;
@@ -215,14 +217,19 @@ public sealed class CompassOverlay : IDisposable
 
         var offset = CompassMath.HandOffset(settings.Hand);
         var fresh = CompassMath.Compute(currentFlight, frame.Head, hand.Pose, offset);
-        // A hand or colour switch (live, from the settings) changes the picture: draw it at once.
-        bool firstImage = billboard is null || imageGlow != settings.Glow || imageHand != settings.Hand;
-        bool changed = billboard is { } held && CompassMath.Angle(held, fresh.PhysicalBillboard) > ImageAngleRadians;
+        var axes = settings.ShowWorldDown ? fresh.Axes : fresh.Axes with { WorldDown = Vector3.Zero };
+        // A hand, colour or world-down switch (live, from the settings) changes the picture: draw it at once.
+        bool firstImage = billboard is null || imageGlow != settings.Glow || imageHand != settings.Hand ||
+            (imageWorldDown == Vector3.Zero) == settings.ShowWorldDown;
+        // The real frame only moves with the view; the world-down dot also moves when the flight turns.
+        bool changed = billboard is { } held &&
+            (CompassMath.Angle(held, fresh.PhysicalBillboard) > ImageAngleRadians ||
+             settings.ShowWorldDown && Angle(imageWorldDown, axes.WorldDown) > ImageAngleRadians);
         CompassView? uploaded = null;
         if ((firstImage || changed && time.GetElapsedTime(lastImage, now) >= MinimumImageInterval) && now >= nextAttempt)
         {
             long drawStart = time.GetTimestamp();
-            options.Renderer.Render(fresh.Axes, settings.Glow, image);
+            options.Renderer.Render(axes, settings.Glow, image);
             var drawn = time.GetElapsedTime(drawStart);
             try
             {
@@ -236,6 +243,7 @@ public sealed class CompassOverlay : IDisposable
                 billboard = fresh.PhysicalBillboard;
                 imageGlow = settings.Glow;
                 imageHand = settings.Hand;
+                imageWorldDown = axes.WorldDown;
                 lastImage = now;
                 uploaded = fresh;
             }
@@ -268,6 +276,9 @@ public sealed class CompassOverlay : IDisposable
         if (!shown) { api.Show(); shown = true; }
         status = MakeStatus(CompassState.Visible, settings.Hand);
     }
+
+    private static float Angle(Vector3 a, Vector3 b) =>
+        MathF.Acos(Math.Clamp(Vector3.Dot(Vector3.Normalize(a), Vector3.Normalize(b)), -1, 1));
 
     private void Refused(Exception exception, long now)
     {

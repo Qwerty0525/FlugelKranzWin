@@ -18,6 +18,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] private int compassVisibilityIndex = (int)CompassSettings.Default.Visibility;
     /// <summary>0 = teal, 1 = lime, 2 = amber.</summary>
     [ObservableProperty] private int compassGlowIndex = (int)CompassSettings.Default.Glow;
+    [ObservableProperty] private bool compassShowWorldDown = CompassSettings.Default.ShowWorldDown;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CompassSizeLabel))]
     private double compassSizeCentimetres = CompassSettings.Default.SizeCentimetres;
@@ -57,7 +58,7 @@ public sealed partial class MainViewModel
     private static readonly string[] CompassSettingNames =
     [
         nameof(CompassEnabled), nameof(CompassHandIndex), nameof(CompassVisibilityIndex),
-        nameof(CompassGlowIndex), nameof(CompassSizeCentimetres)
+        nameof(CompassGlowIndex), nameof(CompassShowWorldDown), nameof(CompassSizeCentimetres)
     ];
 
     /// <summary>Read by the compass thread on every update, so changes apply live.</summary>
@@ -67,6 +68,7 @@ public sealed partial class MainViewModel
         Hand = (CompassHand)CompassHandIndex,
         Visibility = (CompassVisibility)CompassVisibilityIndex,
         Glow = (CompassGlow)CompassGlowIndex,
+        ShowWorldDown = CompassShowWorldDown,
         SizeCentimetres = (float)CompassSizeCentimetres
     }.Normalized();
 
@@ -77,6 +79,7 @@ public sealed partial class MainViewModel
         CompassHandIndex = (int)settings.Hand;
         CompassVisibilityIndex = (int)settings.Visibility;
         CompassGlowIndex = (int)settings.Glow;
+        CompassShowWorldDown = settings.ShowWorldDown;
         CompassSizeCentimetres = Math.Round(settings.SizeCentimetres, 2);
     }
 
@@ -92,5 +95,6 @@ public sealed partial class MainViewModel
     [RelayCommand] private void ResetCompassHand() => CompassHandIndex = (int)CompassSettings.Default.Hand;
     [RelayCommand] private void ResetCompassVisibility() => CompassVisibilityIndex = (int)CompassSettings.Default.Visibility;
     [RelayCommand] private void ResetCompassGlow() => CompassGlowIndex = (int)CompassSettings.Default.Glow;
+    [RelayCommand] private void ResetCompassShowWorldDown() => CompassShowWorldDown = CompassSettings.Default.ShowWorldDown;
     [RelayCommand] private void ResetCompassSize() => CompassSizeCentimetres = CompassSettings.Default.SizeCentimetres;
 }

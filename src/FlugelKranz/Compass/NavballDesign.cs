@@ -12,7 +12,8 @@ namespace FlugelKranz.Compass;
 /// dot in the chosen colour at its pole when the pole is on the near half, or a dimmer hollow ring
 /// at the spot it projects to when it is on the far half. A small glowing triangle just outside the
 /// rim always points toward real down on the image, so the way down is clear even when the pole is
-/// behind the ball. The geometry is in <see cref="NavballMath"/>.
+/// behind the ball. A small plain white dot (a faint ring when behind) marks the flown world's down
+/// when it is shown. The geometry is in <see cref="NavballMath"/>.
 /// </summary>
 public sealed class NavballDesign : ICompassDesign
 {
@@ -73,6 +74,8 @@ public sealed class NavballDesign : ICompassDesign
         paint.Color = Shell.WithAlpha(90);
         canvas.DrawCircle(centre, centre, radius, paint);
 
+        if (NavballMath.HasWorldDown(axes)) DrawWorldDown(canvas, size, axes);
+
         var pole = NavballMath.PoleInImage(axes);
         var polePixel = new SKPoint(centre + pole.X * radius, centre - pole.Y * radius);
         if (NavballMath.PoleOnFront(axes))
@@ -121,6 +124,52 @@ public sealed class NavballDesign : ICompassDesign
         paint.Style = SKPaintStyle.Fill;
         paint.Color = Blend(color, SKColors.White, 0.2f).WithAlpha(240);
         canvas.DrawPath(path, paint);
+    }
+
+    /// <summary>
+    /// The flown world's down: a small plain white dot on the near half or a faint white ring on the
+    /// far half, plus a thin faint arc along the sphere to real down where that arc is on the near
+    /// half. Drawn before real down, so the glowing marker covers it when they coincide (no flight).
+    /// </summary>
+    private void DrawWorldDown(SKCanvas canvas, int size, CompassAxes axes)
+    {
+        var down = Vector3.Normalize(axes.Down);
+        var world = Vector3.Normalize(axes.WorldDown);
+        float cos = Math.Clamp(Vector3.Dot(down, world), -1, 1);
+        float angle = MathF.Acos(cos), sin = MathF.Sin(angle);
+        paint.MaskFilter = null;
+        if (angle > 2 * MathF.PI / 180 && sin > 1e-3f)
+        {
+            // Great-circle arc from the world's down to real down, front parts only.
+            paint.Style = SKPaintStyle.Stroke;
+            paint.StrokeWidth = size * 0.005f;
+            paint.Color = SKColors.White.WithAlpha(70);
+            path.Reset();
+            bool drawing = false;
+            for (int i = 0; i <= ArcSegments; i++)
+            {
+                float t = (float)i / ArcSegments;
+                var point = (MathF.Sin((1 - t) * angle) * world + MathF.Sin(t * angle) * down) / sin;
+                if (point.Z < 0) { drawing = false; continue; }
+                if (drawing) path.LineTo(Pixel(point)); else path.MoveTo(Pixel(point));
+                drawing = true;
+            }
+            canvas.DrawPath(path, paint);
+        }
+        var spot = Pixel(world);
+        if (world.Z >= 0)
+        {
+            paint.Style = SKPaintStyle.Fill;
+            paint.Color = SKColors.White.WithAlpha(235);
+            canvas.DrawCircle(spot, size * 0.017f, paint);
+        }
+        else
+        {
+            paint.Style = SKPaintStyle.Stroke;
+            paint.StrokeWidth = size * 0.006f;
+            paint.Color = SKColors.White.WithAlpha(100);
+            canvas.DrawCircle(spot, size * 0.02f, paint);
+        }
     }
 
     /// <summary>A sphere point (quad frame, sphere radii) seen straight on, in pixels.</summary>

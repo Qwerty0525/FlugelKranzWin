@@ -972,6 +972,54 @@ the panel; there is one selector, outside the panel, uncovered and working at
 the default 1100 px, uncovered at 721–1000 px and covered at 720 and 600 px.
 `LocalizationTests` now expects one selector.
 
+## 2026-11-06 — Navball: world-down dot; compass off by default
+
+Affected files: `src/FlugelKranz.Core/GravityCompass.cs`,
+`src/FlugelKranz.OpenVR/CompassOverlay.cs`,
+`src/FlugelKranz/Compass/NavballDesign.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Compass.cs`,
+`src/FlugelKranz/Views/MainView.cs`, both language tables, `WINDOWS.md`,
+`tests/FlugelKranz.Tests/CompassMathTests.cs`, `CompassOverlayTests.cs` and
+`CompassSettingsTests.cs`.
+
+The navball passed its first VR check (2026-11-06 23:48: no refusals or
+overlay errors, 323 s of flight with headAge >= 47 ms at 0 %). Two changes
+from the user.
+
+**World-down dot.** A second, small, plain white dot (no glow) marks the
+flown VRChat world's down. Before any flight the world, the tracking space
+and the room share their down, so it sits under the glowing real-down dot,
+which is drawn on top. The world's down is −Y of the flown (tracking) space
+where the quad lives, so in the quad's frame it is `conj(billboard) × (−Y)`
+(`CompassAxes.WorldDown`); real down is the flight rotation applied to −Y in
+that space. A flight roll of +90° (D about +Z: the flown head rolls toward
+its left shoulder in the game) therefore puts the world's down at the left of
+the view, 90° from real down; yaw leaves them together. On the near half it
+is a solid white dot, on the far half a faint hollow white ring, and a thin
+faint arc along the sphere joins it to real down where the arc is on the near
+half. The image now changes when the flight turns the world's down, so the
+compass redraws when that direction moves by more than 0.5° in the view (still
+at most once per 30 ms); with the dot hidden, flight never redraws it, as
+before. Setting **Show world down** (`"showWorldDown"`, default on).
+
+**Off by default.** `"enabled"` now defaults to false for new configs and
+when the key is missing; a saved value is kept, so a config that already has
+`"enabled": true` keeps the compass on.
+
+### Testing
+
+`CompassMathTests`: no flight and yaw-only flights put the world's down on
+real down; flight roll +90° puts it 90° away at the image's left (−90° on the
+right), matching the flown world's horizon the previews draw; pitch 45° and
+upside down move it by 45° and 180° (upside down: real down behind the ball,
+the world's down in front); the defaults (off, world down shown).
+`CompassOverlayTests`: off by default (no overlay created), flight redraws only
+for the dot (none with it hidden or under yaw, every 30 ms while rolling, real
+down unchanged), hiding it redraws once without it; the white dot, the faint
+ring, the glowing marker on top when they coincide. `CompassSettingsTests`:
+the new key and the off default in config.json, the checkbox and its reset.
+Previews add the texture for each flight case.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
