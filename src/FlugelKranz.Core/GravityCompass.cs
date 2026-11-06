@@ -31,7 +31,8 @@ public sealed record CompassSettings
     public static CompassSettings Default { get; } = new();
 
     public bool Enabled { get; init; } = true;
-    public CompassHand Hand { get; init; } = CompassHand.Left;
+    /// <summary>Right by default: wrist-watch style overlays usually sit on the left wrist.</summary>
+    public CompassHand Hand { get; init; } = CompassHand.Right;
     public CompassVisibility Visibility { get; init; } = CompassVisibility.WhileFlying;
     public CompassGlow Glow { get; init; } = CompassGlow.Teal;
     /// <summary>Sphere diameter.</summary>
@@ -39,7 +40,7 @@ public sealed record CompassSettings
 
     public CompassSettings Normalized() => this with
     {
-        Hand = Enum.IsDefined(Hand) ? Hand : CompassHand.Left,
+        Hand = Enum.IsDefined(Hand) ? Hand : CompassHand.Right,
         Visibility = Enum.IsDefined(Visibility) ? Visibility : CompassVisibility.WhileFlying,
         Glow = Enum.IsDefined(Glow) ? Glow : CompassGlow.Teal,
         SizeCentimetres = float.IsFinite(SizeCentimetres)

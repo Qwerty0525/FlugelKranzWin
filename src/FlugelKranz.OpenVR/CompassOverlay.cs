@@ -62,10 +62,11 @@ public sealed class CompassOverlay : IDisposable
     private float width = -1;
     private Quaternion? billboard;
     private CompassGlow imageGlow;
+    private CompassHand imageHand;
     private long lastImage;
     private uint transformDevice = Vr.k_unTrackedDeviceIndexInvalid;
     private RigidPose transform;
-    private volatile CompassStatus status = new(CompassState.Off, CompassHand.Left);
+    private volatile CompassStatus status = new(CompassState.Off, CompassSettings.Default.Hand);
 
     /// <summary>Images drawn so far (for tests and diagnostics).</summary>
     public int ImagesDrawn { get; private set; }
@@ -163,7 +164,8 @@ public sealed class CompassOverlay : IDisposable
         var offset = CompassMath.HandOffset(settings.Hand);
         var fresh = CompassMath.Compute(currentFlight, frame.Head, hand.Pose, offset);
         long now = time.GetTimestamp();
-        bool firstImage = billboard is null || imageGlow != settings.Glow;
+        // A hand switch (live, from the settings) moves the sphere: draw for the new view at once.
+        bool firstImage = billboard is null || imageGlow != settings.Glow || imageHand != settings.Hand;
         bool turned = billboard is { } held && CompassMath.Angle(held, fresh.PhysicalBillboard) > ImageAngleRadians;
         CompassView view;
         if (firstImage || turned && time.GetElapsedTime(lastImage, now) >= MinimumImageInterval)
@@ -173,6 +175,7 @@ public sealed class CompassOverlay : IDisposable
             ImagesDrawn++;
             billboard = fresh.PhysicalBillboard;
             imageGlow = settings.Glow;
+            imageHand = settings.Hand;
             lastImage = now;
             view = fresh;
         }

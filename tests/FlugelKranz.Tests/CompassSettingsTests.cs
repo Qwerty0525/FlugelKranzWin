@@ -23,7 +23,7 @@ public class CompassSettingsTests
             var store = new SettingsStore(path);
             store.Save(FlugelKranzSettings.Default);
             var node = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-            Assert.Equal("left", node["compass"]!["hand"]!.GetValue<string>());
+            Assert.Equal("right", node["compass"]!["hand"]!.GetValue<string>());
             Assert.Equal("whileFlying", node["compass"]!["visibility"]!.GetValue<string>());
             Assert.Equal("teal", node["compass"]!["glow"]!.GetValue<string>());
 
@@ -33,13 +33,13 @@ public class CompassSettingsTests
 
             node["compass"] = new JsonObject
             {
-                ["enabled"] = false, ["hand"] = "right", ["visibility"] = "always", ["glow"] = "amber", ["sizeCentimetres"] = 99
+                ["enabled"] = false, ["hand"] = "left", ["visibility"] = "always", ["glow"] = "amber", ["sizeCentimetres"] = 99
             };
             File.WriteAllText(path, node.ToJsonString());
             var loaded = new SettingsStore(path).Load().Compass;
             Assert.Equal(new CompassSettings
             {
-                Enabled = false, Hand = CompassHand.Right, Visibility = CompassVisibility.Always,
+                Enabled = false, Hand = CompassHand.Left, Visibility = CompassVisibility.Always,
                 Glow = CompassGlow.Amber, SizeCentimetres = CompassSettings.MaximumSizeCentimetres
             }, loaded);
         }
@@ -68,18 +68,18 @@ public class CompassSettingsTests
             var hand = Options("CompassHand");
             var glow = Options("CompassGlow");
             var status = window.GetVisualDescendants().OfType<SelectableTextBlock>().Single(t => t.Name == "CompassStatus");
-            Assert.Equal(new bool?[] { true, false }, hand.Select(b => b.IsChecked));
+            Assert.Equal(new bool?[] { false, true }, hand.Select(b => b.IsChecked));
             Assert.Equal("Right hand", hand[1].Content);
             Assert.Equal(3, glow.Length);
             Assert.Equal("Appears once FlugelKranz is connected to SteamVR.", status.Text);
 
-            hand[1].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            hand[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             glow[2].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            Assert.Equal(new bool?[] { false, true }, hand.Select(b => b.IsChecked));
+            Assert.Equal(new bool?[] { true, false }, hand.Select(b => b.IsChecked));
             vm.CompassVisibilityIndex = 1;
             vm.CompassSizeCentimetres = 6;
             var saved = JsonNode.Parse(File.ReadAllText(settingsPath))!["compass"]!;
-            Assert.Equal("right", saved["hand"]!.GetValue<string>());
+            Assert.Equal("left", saved["hand"]!.GetValue<string>());
             Assert.Equal("amber", saved["glow"]!.GetValue<string>());
             Assert.Equal("always", saved["visibility"]!.GetValue<string>());
             Assert.Equal(6, saved["sizeCentimetres"]!.GetValue<double>(), 3);
@@ -107,7 +107,7 @@ public class CompassSettingsTests
             vm.ResetCompassVisibilityCommand.Execute(null);
             vm.ResetCompassGlowCommand.Execute(null);
             vm.ResetCompassSizeCommand.Execute(null);
-            Assert.Equal(new bool?[] { true, false }, hand.Select(b => b.IsChecked));
+            Assert.Equal(new bool?[] { false, true }, hand.Select(b => b.IsChecked));
             Assert.Equal(new bool?[] { true, false, false }, glow.Select(b => b.IsChecked));
             await vm.DisposeAsync();
             Assert.Equal(CompassSettings.Default, new SettingsStore(settingsPath).Load().Compass);

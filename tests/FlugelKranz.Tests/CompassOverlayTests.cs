@@ -28,7 +28,7 @@ public class CompassOverlayTests
     }
 
     [Fact]
-    public void ShowsOnlyWhileFlyingByDefaultOnTheLeftController()
+    public void ShowsOnlyWhileFlyingByDefaultOnTheRightController()
     {
         var (overlay, api, _, _) = Create();
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
@@ -40,7 +40,8 @@ public class CompassOverlayTests
         overlay.Tick();
         Assert.Equal(CompassState.Visible, overlay.Status.State);
         Assert.True(api.Visible);
-        Assert.Equal(3u, api.Device);
+        Assert.Equal(4u, api.Device);
+        Assert.Equal(CompassHand.Right, overlay.Status.Hand);
         Assert.Equal(1, overlay.ImagesDrawn);
         Assert.InRange(api.Width, 0.0511f, 0.0512f); // 4.5 cm sphere on a quad 1/0.88 as wide
 
@@ -50,15 +51,29 @@ public class CompassOverlayTests
     }
 
     [Fact]
-    public void AlwaysRightHandAndOffFollowTheSettingsLive()
+    public void HandSwitchAlwaysAndOffFollowTheSettingsLive()
     {
-        var (overlay, api, _, set) = Create();
+        var (overlay, api, time, set) = Create();
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
-        set(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Right });
+        set(CompassSettings.Default with { Visibility = CompassVisibility.Always });
         overlay.Tick();
         Assert.True(api.Visible);
         Assert.Equal(4u, api.Device);
-        Assert.Equal(CompassHand.Right, overlay.Status.Hand);
+        Assert.Equal(1, overlay.ImagesDrawn);
+
+        // Flipping hands mid-session moves it on the next update, with an image for the new view.
+        set(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left });
+        time.Advance(TimeSpan.FromMilliseconds(15));
+        overlay.Tick();
+        Assert.True(api.Visible);
+        Assert.Equal(3u, api.Device);
+        Assert.Equal(CompassHand.Left, overlay.Status.Hand);
+        Assert.Equal(2, overlay.ImagesDrawn);
+        set(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        time.Advance(TimeSpan.FromMilliseconds(15));
+        overlay.Tick();
+        Assert.Equal(4u, api.Device);
+        Assert.Equal(3, overlay.ImagesDrawn);
 
         set(CompassSettings.Default with { Enabled = false });
         overlay.Tick();
@@ -69,7 +84,7 @@ public class CompassOverlayTests
     [Fact]
     public void HidesWhileTheControllerIsNotTracked()
     {
-        var (overlay, api, _, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        var (overlay, api, _, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left });
         overlay.Publish(Frame(Head, LeftHand, leftTracked: false), 3, 4);
         overlay.Tick();
         Assert.Equal(CompassState.WaitingForTracking, overlay.Status.State);
@@ -82,7 +97,7 @@ public class CompassOverlayTests
     [Fact]
     public void RedrawsOnlyWhenTheViewTurnsAndAtMost30TimesASecond()
     {
-        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
+        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left });
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
         overlay.Tick();
         Assert.Equal(1, overlay.ImagesDrawn);
@@ -124,7 +139,7 @@ public class CompassOverlayTests
     public void HeldImageStaysPhysicallyCorrectBetweenRedraws()
     {
         var renderer = new CountingRenderer();
-        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always }, renderer);
+        var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = CompassHand.Left }, renderer);
         var flight = new RigidPose(Quaternion.CreateFromYawPitchRoll(0.4f, 1.1f, -0.7f), new(3, 4, 5));
         overlay.PublishFlight(flight);
         overlay.Publish(Frame(Head, LeftHand), 3, 4);
@@ -171,7 +186,7 @@ public class CompassOverlayTests
         runtime.ReadPhysical();
         runtime.Compass!.Tick();
         Assert.True(api.Visible);
-        Assert.Equal(1u, api.Device);
+        Assert.Equal(2u, api.Device); // right controller by default
         runtime.Dispose();
         Assert.True(api.Disposed);
     }

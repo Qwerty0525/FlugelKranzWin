@@ -169,7 +169,7 @@ public class CompassMathTests
     {
         var defaults = CompassSettings.Default;
         Assert.True(defaults.Enabled);
-        Assert.Equal(CompassHand.Left, defaults.Hand);
+        Assert.Equal(CompassHand.Right, defaults.Hand);
         Assert.Equal(CompassVisibility.WhileFlying, defaults.Visibility);
         Assert.Equal(CompassGlow.Teal, defaults.Glow);
         Assert.Equal(4.5f, defaults.SizeCentimetres);
@@ -177,5 +177,6 @@ public class CompassMathTests
         Assert.Equal(3, (defaults with { SizeCentimetres = 0 }).Normalized().SizeCentimetres);
         Assert.Equal(4.5f, (defaults with { SizeCentimetres = float.NaN }).Normalized().SizeCentimetres);
         Assert.Equal(CompassGlow.Teal, (defaults with { Glow = (CompassGlow)9 }).Normalized().Glow);
+        Assert.Equal(CompassHand.Right, (defaults with { Hand = (CompassHand)9 }).Normalized().Hand);
     }
 }

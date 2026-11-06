@@ -585,7 +585,7 @@ destroyed on disconnect.
 
 **Settings** (settings panel → Gravity compass; `"compass"` in
 `config.json`; each with a reset): show (default on), hand (left / right,
-default left), when (while flying / always, default while flying; "always"
+default right; see the next section), when (while flying / always, default while flying; "always"
 means while connected to SteamVR), gravity arrow colour (teal / lime /
 amber), size. Changes apply live. Configs without the key get the defaults.
 The option buttons are toggle buttons like the language selector, because a
@@ -601,6 +601,26 @@ overlay interface through `DriverFlightRuntime`, the renderer's pixels) and
 languages, resets). `RenderPreviewImagesWhenAsked` writes the texture and a
 mock flown view for identity, roll 90° and pitch 45° when
 `FLUGELKRANZ_COMPASS_PNG` names a folder. Not yet seen in VR.
+
+## 2026-11-06 — Gravity compass on the right hand by default
+
+Affected files: `src/FlugelKranz.Core/GravityCompass.cs`,
+`src/FlugelKranz.OpenVR/CompassOverlay.cs`, `WINDOWS.md` and the three
+compass test files.
+
+The compass now defaults to the right hand: wrist-watch style overlays
+usually sit on the left wrist, and the compass would overlap them there.
+The left / right switch stays in the settings and applies live: the next
+compass update (within about 15 ms) moves the overlay to the other
+controller and draws an image for the new view at once instead of waiting
+for the 1.5° redraw threshold. A config that already saved `"hand"` keeps
+it; configs without the compass key get the right hand.
+
+### Testing
+
+`CompassOverlayTests` flips right → left → right on a running overlay and
+checks the device, the status and one new image per flip; the defaults,
+config round trip and settings-panel tests now expect the right hand.
 
 ## 2026-10-25 — Redistribution notices
 
