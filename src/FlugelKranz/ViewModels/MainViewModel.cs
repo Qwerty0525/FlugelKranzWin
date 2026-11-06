@@ -206,11 +206,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public string ValveIndexForceStatus =>
         Strings.Format("status.valveIndexForce", LeftValveIndexForce, RightValveIndexForce);
 
+    /// <param name="buildProfile">Defaults for new configs; <see cref="BuildProfiles.Current"/> when null.</param>
     public MainViewModel(string libraryPath, string? settingsPath = null,
-        Func<Func<ValveIndexInputSettings>, IFlightRuntime>? runtimeFactory = null, bool enableIndependentDrag = false)
+        Func<Func<ValveIndexInputSettings>, IFlightRuntime>? runtimeFactory = null, bool enableIndependentDrag = false,
+        BuildProfile? buildProfile = null)
     {
         this.enableIndependentDrag = enableIndependentDrag;
-        settingsStore = new(settingsPath);
+        BuildProfile = buildProfile ?? BuildProfiles.Current;
+        settingsStore = new(settingsPath, BuildProfile);
         DiagnosticSourcesFactory = () => Diagnostics.DiagnosticSources.ForThisPc(settingsStore.Path);
         var savedSettings = settingsStore.Load();
         Strings.SetLanguage(settingsStore.Language);

@@ -7,7 +7,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>Assets/FlugelKranz.ico</ApplicationIcon>
+    <!-- release or test; build-windows.ps1 -TestBuild passes test. Read back by BuildProfiles.Current. -->
+    <FlugelKranzBuildProfile Condition="'$(FlugelKranzBuildProfile)' == ''">release</FlugelKranzBuildProfile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="FlugelKranzBuildProfile" Value="$(FlugelKranzBuildProfile)" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />

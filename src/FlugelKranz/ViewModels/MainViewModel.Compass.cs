@@ -91,7 +91,10 @@ public sealed partial class MainViewModel
 
     partial void OnCompassEnabledChanged(bool value) => OnPropertyChanged(nameof(CompassStatusText));
 
-    [RelayCommand] private void ResetCompassEnabled() => CompassEnabled = CompassSettings.Default.Enabled;
+    /// <summary>Release or test build: the compass's default on / off follows it.</summary>
+    public BuildProfile BuildProfile { get; }
+
+    [RelayCommand] private void ResetCompassEnabled() => CompassEnabled = BuildProfile.CompassDefaults().Enabled;
     [RelayCommand] private void ResetCompassHand() => CompassHandIndex = (int)CompassSettings.Default.Hand;
     [RelayCommand] private void ResetCompassVisibility() => CompassVisibilityIndex = (int)CompassSettings.Default.Visibility;
     [RelayCommand] private void ResetCompassGlow() => CompassGlowIndex = (int)CompassSettings.Default.Glow;

@@ -972,7 +972,7 @@ the panel; there is one selector, outside the panel, uncovered and working at
 the default 1100 px, uncovered at 721–1000 px and covered at 720 and 600 px.
 `LocalizationTests` now expects one selector.
 
-## 2026-11-06 — Navball: world-down dot; compass off by default
+## 2026-11-06 — Navball: world-down dot; compass off by default (release)
 
 Affected files: `src/FlugelKranz.Core/GravityCompass.cs`,
 `src/FlugelKranz.OpenVR/CompassOverlay.cs`,
@@ -1004,7 +1004,8 @@ before. Setting **Show world down** (`"showWorldDown"`, default on).
 
 **Off by default.** `"enabled"` now defaults to false for new configs and
 when the key is missing; a saved value is kept, so a config that already has
-`"enabled": true` keeps the compass on.
+`"enabled": true` keeps the compass on. (Refined on 2026-11-07: test builds
+default it on; see "Compass default follows the build profile".)
 
 ### Testing
 
@@ -1019,6 +1020,38 @@ down unchanged), hiding it redraws once without it; the white dot, the faint
 ring, the glowing marker on top when they coincide. `CompassSettingsTests`:
 the new key and the off default in config.json, the checkbox and its reset.
 Previews add the texture for each flight case.
+
+## 2026-11-07 — Compass default follows the build profile
+
+Affected files: the new `src/FlugelKranz/BuildProfile.cs`,
+`src/FlugelKranz/FlugelKranz.csproj`, `src/FlugelKranz/ViewModels/SettingsStore.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Compass.cs`, `build-windows.ps1`,
+both language tables, `WINDOWS.md` and the new
+`tests/FlugelKranz.Tests/BuildProfileTests.cs`.
+
+Release builds start new configs with the gravity compass off, test builds
+(`build-windows.ps1 -TestBuild`) with it on. The switch is the one that
+already picks the shipped `driverAudit`: with `-TestBuild` the script
+publishes the app with `-p:FlugelKranzBuildProfile=test`, and the csproj
+stores the profile (`release` unless given) as `AssemblyMetadata` in
+FlugelKranz.dll; `BuildProfiles.Current` reads it at startup. A build-time
+value inside the binary cannot drift from it the way a side file could, and
+plain `dotnet build` / the tests are release. Only settings that are not
+saved yet use it: no config, an old-format config being replaced, a current
+config without a compass section, or a compass section without `"enabled"`;
+a saved `"enabled"` always wins. The compass's Reset goes to the profile's
+default. Everything else in `CompassSettings.Default` is the same for both
+profiles.
+
+### Testing
+
+`BuildProfileTests`: parsing; the test assembly carries `release`; for both
+profiles a missing config, a config without the compass key, a compass
+section without `"enabled"` (other keys kept) and an old flat config (and
+what is saved for it) get on for test and off for release; a saved
+true / false is kept under both; the view model starts and resets to the
+profile default and keeps a saved choice after reopening.
 
 ## 2026-10-25 — Redistribution notices
 

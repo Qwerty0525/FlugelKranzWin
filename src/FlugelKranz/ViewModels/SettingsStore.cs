@@ -14,9 +14,19 @@ internal sealed class SettingsStore
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
-    public SettingsStore(string? path = null) => Path = path ?? ResolvePath();
+    private readonly BuildProfile profile;
+
+    /// <param name="profile">Decides defaults for settings a config does not have yet (see <see cref="BuildProfiles"/>).</param>
+    public SettingsStore(string? path = null, BuildProfile profile = BuildProfile.Release)
+    {
+        Path = path ?? ResolvePath();
+        this.profile = profile;
+    }
 
     public string Path { get; }
+
+    /// <summary>Settings for a new config under this build profile.</summary>
+    public FlugelKranzSettings NewDefaults => FlugelKranzSettings.Default with { Compass = profile.CompassDefaults() };
 
     // UI-only setting kept at the config root ("language"), outside the shared Core schema.
     // Missing or unknown values mean Japanese, so existing configs are unchanged.
@@ -27,7 +37,7 @@ internal sealed class SettingsStore
         try
         {
             if (!File.Exists(Path))
-                return FlugelKranzSettings.Default;
+                return NewDefaults;
 
             string json = File.ReadAllText(Path);
             using var document = JsonDocument.Parse(json);
@@ -46,12 +56,20 @@ internal sealed class SettingsStore
             if (!current)
                 return ResetToCurrentDefaults();
 
-            return JsonSerializer.Deserialize<FlugelKranzSettings>(json, JsonOptions)?.Normalized()
-                ?? ResetToCurrentDefaults();
+            var settings = JsonSerializer.Deserialize<FlugelKranzSettings>(json, JsonOptions)?.Normalized();
+            if (settings is null)
+                return ResetToCurrentDefaults();
+            // A config without a saved compass on/off gets this build's default; a saved value wins.
+            bool savedEnabled = root.TryGetProperty("compass", out var compass) &&
+                compass.ValueKind == JsonValueKind.Object &&
+                compass.TryGetProperty("enabled", out var enabled) &&
+                enabled.ValueKind is JsonValueKind.True or JsonValueKind.False;
+            return savedEnabled ? settings
+                : settings with { Compass = settings.Compass with { Enabled = profile.CompassDefaults().Enabled } };
         }
         catch (IOException)
         {
-            return FlugelKranzSettings.Default;
+            return NewDefaults;
         }
         catch (JsonException)
         {
@@ -85,7 +103,7 @@ internal sealed class SettingsStore
 
     private FlugelKranzSettings ResetToCurrentDefaults()
     {
-        var settings = FlugelKranzSettings.Default;
+        var settings = NewDefaults;
         Save(settings);
         return settings;
     }
