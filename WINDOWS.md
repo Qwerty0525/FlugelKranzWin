@@ -20,6 +20,8 @@
 # ./build-windows.ps1 -Dotnet 'C:/path/to/dotnet.exe' -CMake 'C:/path/to/cmake.exe'
 # 飛行・コンパスの試験用ビルド（driverAudit = true、コンパス既定オン）：
 # ./build-windows.ps1 -TestBuild
+# 配置先（artifacts/windows-x64）以外へ出力（配布 zip の作成など）：
+# ./build-windows.ps1 -OutputDir artifacts/release-v0.9.0
 ```
 
 通常（リリース）のビルドは配置するドライバー設定 `default.vrsettings` に `driverAudit: false` を、`-TestBuild` を付けたビルドは `driverAudit: true` を書き込みます（毎秒の `DriverAudit` 行を `vrserver.txt` に出力）。どちらもビルドのたびに配置先の値を上書きするため、アプリの「詳細診断」で変えた値もビルドで戻ります。

@@ -56,7 +56,7 @@ ctest --test-dir artifacts/driver-build -C Release --output-on-failure
 ./build-windows.ps1
 ```
 
-`build-windows.ps1` は配布先へ書き込みます。使用中の配布アプリ・SteamVR を終了してから更新してください。`-Dotnet PATH -CMake PATH` で実行ファイルを指定できます。
+`build-windows.ps1` は配布先へ書き込みます。使用中の配布アプリ・SteamVR を終了してから更新してください。`-Dotnet PATH -CMake PATH` で実行ファイルを指定できます。`-OutputDir DIR` は配置先（既定 `artifacts/windows-x64`）の代わりに別のフォルダーへ出力します。
 
 コード変更では関連するビルドとテストを実行します。入力切替の再基準化、軸制約、回転支点、慣性、座標合成、追跡喪失、OFF と復元、フレーム時刻・画像情報の保持を検証してください。ドキュメントのみの変更ではリンク・コマンド・設定値と実装の一致、差分の検査を行います。実機操作は自動テスト成功だけで確認済みとしません。
 
