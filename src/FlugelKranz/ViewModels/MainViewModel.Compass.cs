@@ -36,12 +36,22 @@ public sealed partial class MainViewModel
                 CompassState.Off => Strings["settings.compass.status.off"],
                 CompassState.WaitingForFlight => Strings["settings.compass.status.waitingForFlight"],
                 CompassState.WaitingForTracking => Strings.Format("settings.compass.status.waitingForTracking", hand),
-                CompassState.Visible => status.Detail is { } retries
-                    ? Strings.Format("settings.compass.status.visible", hand) + "\n" + Strings.Format("settings.compass.status.uploadRetries", retries)
-                    : Strings.Format("settings.compass.status.visible", hand),
+                CompassState.WaitingForSteamVr => Strings.Format("settings.compass.status.waitingForSteamVr",
+                    status.Refusals, status.LastRefusal ?? status.Detail ?? ""),
+                CompassState.Visible => VisibleCompassText(status, hand),
                 _ => Strings.Format("settings.compass.status.unavailable", status.Detail ?? "")
             };
         }
+    }
+
+    private string VisibleCompassText(CompassStatus status, string hand)
+    {
+        string text = Strings.Format("settings.compass.status.visible", hand) + "\n" +
+            Strings.Format("settings.compass.status.stats", status.ImagesPerSecond, status.DrawMilliseconds,
+                status.SteamVrMilliseconds, status.SteamVrMaxMilliseconds);
+        if (status.Refusals > 0)
+            text += "\n" + Strings.Format("settings.compass.status.uploadRetries", status.Refusals, status.LastRefusal ?? "");
+        return text;
     }
 
     private static readonly string[] CompassSettingNames =

@@ -53,13 +53,30 @@ public sealed record CompassSettings
 public readonly record struct CompassAxes(Vector3 Down, Vector3 Forward, Vector3 Right);
 
 /// <summary>
+/// The two eyes in the quad's frame (see <see cref="CompassView"/>), in sphere radii, with the
+/// sphere centre at the origin. Each half of the stereo texture is drawn from one of them.
+/// </summary>
+public readonly record struct CompassEyes(Vector3 Left, Vector3 Right);
+
+/// <summary>
+/// What the stereo image needs besides the poses: each eye's position in the HMD's frame
+/// (<c>IVRSystem::GetEyeToHeadTransform</c>, metres) and the sphere radius in metres.
+/// </summary>
+public readonly record struct CompassStereo(Vector3 LeftEyeInHead, Vector3 RightEyeInHead, float SphereRadius)
+{
+    /// <summary>64 mm between the eyes and the default 4.5 cm sphere, until SteamVR reports the real eyes.</summary>
+    public static CompassStereo Default { get; } = new(new(-0.032f, 0, 0), new(0.032f, 0, 0), CompassSettings.Default.SizeCentimetres / 200);
+}
+
+/// <summary>
 /// One compass image and where its quad sits. Axis vectors are in the quad's frame:
 /// +X right on the image, +Y up on the image, +Z toward the viewer (the near half of the sphere).
 /// </summary>
 public readonly record struct CompassView(
     RigidPose OverlayInHand,
     CompassAxes Axes,
-    Quaternion PhysicalBillboard);
+    Quaternion PhysicalBillboard,
+    CompassEyes Eyes);
 
 /// <summary>
 /// Direction math for the gravity compass. Coordinates follow the rest of the app: right-handed,
@@ -123,8 +140,9 @@ public static class CompassMath
     /// Keep this quad orientation (physical frame, from an earlier view) instead of facing the head
     /// again, so a transform update between two images keeps the arrows on the drawn image correct.
     /// </param>
+    /// <param name="stereo">Eye offsets and sphere size for <see cref="CompassView.Eyes"/>; <see cref="CompassStereo.Default"/> when null.</param>
     public static CompassView Compute(RigidPose flight, RigidPose physicalHead, RigidPose physicalHand, Vector3 handOffset,
-        Quaternion? heldPhysicalBillboard = null)
+        Quaternion? heldPhysicalBillboard = null, CompassStereo? stereo = null)
     {
         var flownHead = flight * physicalHead;
         var flownHand = flight * physicalHand;
@@ -140,8 +158,38 @@ public static class CompassMath
             Vector3.Transform(real.Right, toQuad));
         var overlayInHand = flownHand.Inverse() * new RigidPose(billboard, centre);
         var physical = Quaternion.Normalize(Quaternion.Conjugate(flight.Orientation) * billboard);
-        return new(overlayInHand, axes, physical);
+        // The eyes relative to the quad do not depend on the flight (it moves head and hand together),
+        // so use the physical poses, which stay near the origin and keep float precision.
+        var s = stereo ?? CompassStereo.Default;
+        float radius = s.SphereRadius > 1e-4f && float.IsFinite(s.SphereRadius) ? s.SphereRadius : CompassStereo.Default.SphereRadius;
+        var physicalCentre = physicalHand.Transform(handOffset);
+        var toPhysicalQuad = Quaternion.Conjugate(physical);
+        Vector3 Eye(Vector3 inHead) => Vector3.Transform(physicalHead.Transform(inHead) - physicalCentre, toPhysicalQuad) / radius;
+        return new(overlayInHand, axes, physical, new(Eye(s.LeftEyeInHead), Eye(s.RightEyeInHead)));
     }
+
+    /// <summary>Eyes closer than this (sphere radii) are treated as this far, so projections stay finite.</summary>
+    public const float MinimumEyeDistance = 2;
+
+    /// <summary>
+    /// Where a point of the gizmo appears on the quad for one eye: the ray from the eye through
+    /// the point meets the quad plane (z = 0). Point and eye are in the quad's frame in sphere radii
+    /// (the sphere is the unit sphere at the origin, the eye in front at +Z), and so is the result.
+    /// A point in front of the plane lands farther out than it is and one behind it closer in, by
+    /// opposite amounts for the two eyes: that difference is the stereo depth.
+    /// </summary>
+    public static Vector2 Project(Vector3 point, Vector3 eye)
+    {
+        float distance = MathF.Max(eye.Z, MinimumEyeDistance);
+        float scale = distance / MathF.Max(distance - point.Z, 0.25f);
+        return new(eye.X + (point.X - eye.X) * scale, eye.Y + (point.Y - eye.Y) * scale);
+    }
+
+    /// <summary>
+    /// Horizontal disparity of <paramref name="point"/>: its x on the left eye's image minus its x on
+    /// the right eye's. Positive (crossed) means in front of the quad, toward the viewer; negative behind it.
+    /// </summary>
+    public static float Disparity(Vector3 point, CompassEyes eyes) => Project(point, eyes.Left).X - Project(point, eyes.Right).X;
 
     /// <summary>Angle between two orientations, in radians.</summary>
     public static float Angle(Quaternion a, Quaternion b)
@@ -151,12 +199,16 @@ public static class CompassMath
     }
 }
 
-/// <summary>Draws one compass image into a square RGBA buffer (straight, not premultiplied, alpha).</summary>
+/// <summary>
+/// Draws one side-by-side stereo compass image (straight, not premultiplied, alpha): the left
+/// eye's view in the left <see cref="Size"/> × <see cref="Size"/> half and the right eye's in the right
+/// half, so the buffer is <c>2 * Size</c> pixels wide, <see cref="Size"/> tall, 4 bytes a pixel, rows packed.
+/// </summary>
 public interface ICompassRenderer
 {
-    /// <summary>Texture width and height in pixels.</summary>
+    /// <summary>Width and height of one eye's half, in pixels.</summary>
     int Size { get; }
-    void Render(CompassAxes axes, CompassGlow glow, Span<byte> rgba);
+    void Render(CompassAxes axes, CompassGlow glow, CompassEyes eyes, Span<byte> rgba);
 }
 
 public enum CompassState
@@ -167,9 +219,25 @@ public enum CompassState
     WaitingForFlight,
     /// <summary>The chosen controller or the HMD is not tracked.</summary>
     WaitingForTracking,
+    /// <summary>SteamVR has not accepted the stereo flag or the first image yet; retrying with backoff.</summary>
+    WaitingForSteamVr,
     Visible,
     /// <summary>SteamVR has no overlay interface or refused the overlay; flight is unaffected.</summary>
     Unavailable
 }
 
-public sealed record CompassStatus(CompassState State, CompassHand Hand, string? Detail = null);
+/// <param name="Detail">Why it is unavailable or still waiting for SteamVR.</param>
+public sealed record CompassStatus(CompassState State, CompassHand Hand, string? Detail = null)
+{
+    /// <summary>Image submissions or stereo-flag calls SteamVR refused so far (each kept the last good image).</summary>
+    public int Refusals { get; init; }
+    public string? LastRefusal { get; init; }
+    /// <summary>Images sent over the last full second.</summary>
+    public float ImagesPerSecond { get; init; }
+    /// <summary>Mean CPU time to draw one stereo image over the last second.</summary>
+    public float DrawMilliseconds { get; init; }
+    /// <summary>Mean time the compass held the OpenVR lock (shared with the flight loop) per image over the last second.</summary>
+    public float SteamVrMilliseconds { get; init; }
+    /// <summary>Longest such hold in the last five seconds.</summary>
+    public float SteamVrMaxMilliseconds { get; init; }
+}

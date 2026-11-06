@@ -105,6 +105,71 @@ public class CompassMathTests
         Near(still.Axes.Right, flown.Axes.Right);
         Assert.True(still.OverlayInHand.NearlyEquals(flown.OverlayInHand, 1e-4f));
         Assert.True(CompassMath.Angle(still.PhysicalBillboard, flown.PhysicalBillboard) < 1e-3f);
+        // Each eye sees the sphere from the same place whatever the flight: same stereo pair.
+        Assert.True(Vector3.Distance(still.Eyes.Left, flown.Eyes.Left) < 1e-3f, $"{still.Eyes.Left} vs {flown.Eyes.Left}");
+        Assert.True(Vector3.Distance(still.Eyes.Right, flown.Eyes.Right) < 1e-3f, $"{still.Eyes.Right} vs {flown.Eyes.Right}");
+    }
+
+    [Fact]
+    public void EyesSitHalfTheIpdEitherSideOfTheViewLineInSphereRadii()
+    {
+        // Sphere 40 cm straight ahead of a level head: the quad faces the head, so the eyes are
+        // at x = -/+ 32 mm and z = 40 cm in its frame, divided by the 2.25 cm radius.
+        var hand = new RigidPose(Quaternion.Identity, new(0, 1.6f, -0.4f));
+        var view = CompassMath.Compute(RigidPose.Identity, Head, hand, Vector3.Zero);
+        Near(new(-0.032f / 0.0225f, 0, 0.4f / 0.0225f), view.Eyes.Left);
+        Near(new(0.032f / 0.0225f, 0, 0.4f / 0.0225f), view.Eyes.Right);
+        // A bigger sphere is the same eyes in fewer radii.
+        var big = CompassMath.Compute(RigidPose.Identity, Head, hand, Vector3.Zero,
+            stereo: CompassStereo.Default with { SphereRadius = 0.04f });
+        Near(view.Eyes.Left * 0.0225f / 0.04f, big.Eyes.Left);
+        // The eye offsets come from SteamVR (GetEyeToHeadTransform), in the head's frame.
+        var narrow = CompassMath.Compute(RigidPose.Identity, Head, hand, Vector3.Zero,
+            stereo: new(new(-0.029f, 0, 0), new(0.029f, 0, 0), 0.0225f));
+        Assert.InRange(narrow.Eyes.Right.X - narrow.Eyes.Left.X, 0.058f / 0.0225f - 1e-3f, 0.058f / 0.0225f + 1e-3f);
+    }
+
+    [Fact]
+    public void ProjectionGivesOppositeDisparityTowardAndAwayFromTheViewer()
+    {
+        var eyes = new CompassEyes(new(-1.42f, 0, 17.8f), new(1.42f, 0, 17.8f));
+        // The centre lies on the quad: both eyes see it at the same place.
+        Assert.Equal(0f, CompassMath.Disparity(Vector3.Zero, eyes), 5);
+        Near(new(0.3f, -0.2f, 0), new(CompassMath.Project(new(0.3f, -0.2f, 0), eyes.Left), 0));
+        // In front of the quad: crossed (left image point right of the right image point).
+        float toward = CompassMath.Disparity(new(0, 0, 0.86f), eyes);
+        float away = CompassMath.Disparity(new(0, 0, -0.86f), eyes);
+        Assert.True(toward > 0.1f, $"toward {toward}");
+        Assert.True(away < -0.1f, $"away {away}");
+        // About 2 * e * z / (d - z): 0.14 radii, a quarter of a centimetre of image shift on a 4.5 cm sphere.
+        Assert.InRange(toward, 0.13f, 0.15f);
+        // Nearer points also land farther from the centre (perspective).
+        Assert.True(CompassMath.Project(new(0.5f, 0, 0.8f), eyes.Left).X - CompassMath.Project(new(0, 0, 0.8f), eyes.Left).X > 0.5f);
+        // An eye at the sphere is held back, so nothing blows up.
+        Assert.True(float.IsFinite(CompassMath.Project(new(0, 0, 1), new(0, 0, 0.5f)).X));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RealForwardAtTheViewerStandsOutAndAwayFromThemSinksIn(bool facingBack)
+    {
+        // Looking along real forward at a hand ahead, forward points away from the eyes; turned
+        // round to look at a hand behind, real forward points at them. Only stereo tells these apart
+        // when the arrow is nearly end-on.
+        var head = facingBack
+            ? new RigidPose(Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), new(0, 1.6f, 0))
+            : Head;
+        var hand = new RigidPose(Quaternion.Identity, new(0.05f, 1.55f, facingBack ? 0.4f : -0.4f));
+        foreach (var flight in new[] { RigidPose.Identity, Combined() })
+        {
+            var view = CompassMath.Compute(flight, head, hand, Vector3.Zero);
+            float disparity = CompassMath.Disparity(view.Axes.Forward * 0.86f, view.Eyes);
+            if (facingBack) Assert.True(disparity > 0.1f, $"toward: {disparity}");
+            else Assert.True(disparity < -0.1f, $"away: {disparity}");
+            // Gravity lies almost in the quad plane here: hardly any depth.
+            Assert.InRange(CompassMath.Disparity(view.Axes.Down * 0.86f, view.Eyes), -0.06f, 0.06f);
+        }
     }
 
     [Fact]

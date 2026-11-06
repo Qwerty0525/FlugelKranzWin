@@ -760,6 +760,129 @@ load wins, no line) and the status in the view model for pending, matching,
 changed again and SteamVR closed. 249 C# tests, 246 pass (the 3 known
 `[AvaloniaFact]` discovery errors).
 
+## 2026-11-06 — Gravity compass: GPU texture and stereo 3D
+
+Affected files: the new `src/FlugelKranz.OpenVR/D3D11OverlayTexture.cs`,
+`src/FlugelKranz.OpenVR/CompassOverlay.cs`,
+`src/FlugelKranz.OpenVR/FlugelKranz.OpenVR.csproj` (`AllowUnsafeBlocks`),
+`src/FlugelKranz.Core/GravityCompass.cs`,
+`src/FlugelKranz/Compass/CompassRenderer.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Compass.cs`, both language tables,
+`WINDOWS.md`, `tests/FlugelKranz.Tests/CompassOverlayTests.cs`,
+`CompassMathTests.cs` and the new `D3D11OverlayTextureTests.cs` and
+`CompassSteamVrSelfTest.cs`.
+
+Two problems from the 2026-11-06 21:58 VR test. First, the compass froze:
+about 68 s (some 200 uploads) into the session `vrclient_FlugelKranz.txt`
+starts logging "Refusing to create memory block because 201 blocks are
+already outstanding" and "SetOverlayRaw failed to create a memory block for
+256 x 256 texture", 58 times until exit. The compositor never released the
+blocks, so the 10 per second cap and the retry only delayed it, and the
+compass stayed on its last image. Second, the direction did not read as
+intended: a flat billboard has no depth, so an arrow pointing at the viewer
+and one pointing away both just shrink toward the centre.
+
+**GPU texture instead of SetOverlayRaw.** The compass now draws into one
+D3D11 texture (R8G8B8A8_UNORM, 512 × 256) and hands it over with
+`SetOverlayTexture` (`TextureType_DirectX`, gamma colour space), the usual
+path for overlay apps; `SetOverlayRaw` is no longer called. The device is
+created from C# with raw COM calls (`D3D11CreateDevice`,
+`CreateDXGIFactory1`, and vtable slots for `CreateTexture2D`,
+`UpdateSubresource`, `Flush`, `GetDeviceRemovedReason`, `EnumAdapters1` and
+`Release`) in about 200 lines. No package was added: Vortice or SharpDX would
+bring several assemblies (plus the SharpGen runtime) for six calls. The slot
+numbers follow the Windows SDK headers and are checked on real hardware by a
+readback test. The device sits on the adapter `IVRSystem::GetDXGIOutputInfo`
+names (the compositor's GPU), falling back to the default adapter. Skia keeps
+drawing on the CPU into one reused bitmap; each image is copied into the
+same texture with `UpdateSubresource` (outside the OpenVR lock), then
+`SetOverlayTexture` runs under the lock and the context is flushed. Nothing
+is allocated per image apart from small managed objects. SteamVR copies the
+texture into a shared one on every call: with SteamVR running, 320 submits
+created exactly one shared texture ("Created shared texture ... 512x256" once
+in the vrclient log) and no refusals. If `GetDeviceRemovedReason` reports a
+lost device, or SteamVR refuses three images in a row, the device and texture
+are released and created again on the next try. A SteamVR restart already
+ends the flight runtime (VREvent_Quit), which disposes the compass: the
+thread stops, the overlay is destroyed first and then the texture, context
+and device are released; reconnecting builds new ones.
+
+**Stereo.** The overlay has `VROverlayFlags_SideBySide_Parallel` (left half
+of the texture for the left eye). Each half is a perspective view of the
+gizmo from one eye: the eye positions are the physical HMD pose times
+`GetEyeToHeadTransform` (read at start and every 2 s; 64 mm defaults if
+SteamVR gives none or nonsense), expressed in the quad's frame in sphere
+radii (`CompassView.Eyes`). Every 3D point of the unit sphere, ring and
+arrows goes onto the quad plane along the ray from that eye
+(`CompassMath.Project`): points in front of the quad move outward and get
+crossed disparity, points behind it the opposite, the centre (on the quad)
+none. The sphere outline is the circle where the cone of sight touches the
+sphere. Arrow heads are cones (base disc plus the triangle facing the
+viewer); when an arrow points away the base faces the viewer and is drawn
+darker over the bright side, so even one eye sees the back of the arrow.
+The relative geometry is flight-invariant, so it is computed from the
+physical poses; the quad is still placed on the flown controller and faces
+the flown head. The gizmo math (real axes in the quad frame), the colours,
+sizes, dimming of the far half and all settings are unchanged. Ring segments
+with the same alpha are now drawn as one polyline instead of one line each
+(fewer draw calls, and no darker beads where round caps used to overlap).
+If SteamVR refuses the side-by-side flag the compass shows nothing (both
+halves would otherwise appear next to each other) and retries with backoff.
+
+**Update policy.** The thread still ticks about 64 times a second and sends
+the transform when it moves by more than 0.5 mm / 0.3°. A new image is drawn
+when the view changes: the quad turns by more than 0.5° or an eye moves by
+more than 2 % of the sphere radius (0.45 mm at 4.5 cm) relative to it, at
+most once per 30 ms, so about 32 images a second while the head moves and
+none while the view is still; turning the wrist about the sphere or the
+flight turning the world never redraws. Between images the held billboard
+keeps the arrows correct. Cost measured here: drawing one stereo image takes
+about 1.9 ms on the CPU (Release, idle machine; 3.0 ms mean in the SteamVR
+self-test), so about 6 % of one core at 32 a second on a below-normal
+priority thread; the upload into the texture about 0.1–0.2 ms. The OpenVR
+lock the flight loop also takes is held for `SetOverlayTexture` only:
+0.043 ms on average, 0.094 ms p99 and 0.67 ms at worst over 320 submits to a
+running SteamVR, against 3 ms flight-loop ticks.
+
+**Refusals and status.** A refused image or flag keeps the last good image
+(or shows nothing before the first) and is retried after 250 ms, doubling up
+to 2 s; other SteamVR errors still disable the compass only after 3 s of
+failing updates, and flight never depends on it. The settings status shows
+"Showing (hand, 3D)", a line with images per second, the mean draw time and
+the mean and five-second maximum OpenVR lock time per image, and, after any
+refusal, how many there were and the last error. Before the first image is
+accepted it says it is waiting for SteamVR and why.
+
+### Testing
+
+`CompassMathTests`: eyes at ±IPD/2 and the viewing distance in sphere radii,
+scaling with the sphere size and following the SteamVR eye offsets; the
+projection (centre without disparity, toward-viewer points crossed, away
+points uncrossed, about 0.14 radii at 40 cm, finite for an eye at the
+sphere); real forward pointing at a turned-round viewer stands out and away
+from a forward-facing one sinks in, under identity and a combined flight; the
+eyes are flight-invariant like the rest of the view. `CompassOverlayTests`:
+the existing cases on the new API, a still view sends nothing, at most one
+image per 30 ms while the head moves, eye offsets from SteamVR with the
+fallback, refused images and a refused stereo flag with their backoff, the
+status rates and lock time, a size change redrawing at once, both halves of
+the renderer drawing the arrow with nothing bleeding across, and the
+rendered arrow's left-minus-right centroid positive toward the viewer and
+negative away. `D3D11OverlayTextureTests` on this PC's GPU: uploads read back
+through a staging copy for three patterns on the same texture, WARP, a
+missing adapter index falling back, 40 create / release cycles without
+handle growth, double dispose. `CompassSteamVrSelfTest` (only with
+`FLUGELKRANZ_STEAMVR_SELFTEST=1`) ran against the user's running SteamVR with
+a hidden overlay under its own key (never shown, no flight, no driver):
+adapter 0, side-by-side flag accepted, eyes ±31.5 mm, 320 of 320 submits
+accepted. `RenderPreviewImagesWhenAsked` writes the stereo texture for
+identity, roll 90° and pitch 45° (identical by design: the image is the
+physical view), the same on a dark background, a mock of each eye over the
+flown horizon, and `timing.txt`. Not yet seen in VR: the look, whether
+SteamVR sizes the side-by-side quad from half the texture width (assumed;
+the sphere would look squashed otherwise), and stutter with the compass on
+and off.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
