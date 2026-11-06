@@ -53,30 +53,13 @@ public sealed record CompassSettings
 public readonly record struct CompassAxes(Vector3 Down, Vector3 Forward, Vector3 Right);
 
 /// <summary>
-/// The two eyes in the quad's frame (see <see cref="CompassView"/>), in sphere radii, with the
-/// sphere centre at the origin. Each half of the stereo texture is drawn from one of them.
-/// </summary>
-public readonly record struct CompassEyes(Vector3 Left, Vector3 Right);
-
-/// <summary>
-/// What the stereo image needs besides the poses: each eye's position in the HMD's frame
-/// (<c>IVRSystem::GetEyeToHeadTransform</c>, metres) and the sphere radius in metres.
-/// </summary>
-public readonly record struct CompassStereo(Vector3 LeftEyeInHead, Vector3 RightEyeInHead, float SphereRadius)
-{
-    /// <summary>64 mm between the eyes and the default 4.5 cm sphere, until SteamVR reports the real eyes.</summary>
-    public static CompassStereo Default { get; } = new(new(-0.032f, 0, 0), new(0.032f, 0, 0), CompassSettings.Default.SizeCentimetres / 200);
-}
-
-/// <summary>
 /// One compass image and where its quad sits. Axis vectors are in the quad's frame:
 /// +X right on the image, +Y up on the image, +Z toward the viewer (the near half of the sphere).
 /// </summary>
 public readonly record struct CompassView(
     RigidPose OverlayInHand,
     CompassAxes Axes,
-    Quaternion PhysicalBillboard,
-    CompassEyes Eyes);
+    Quaternion PhysicalBillboard);
 
 /// <summary>
 /// Direction math for the gravity compass. Coordinates follow the rest of the app: right-handed,
@@ -88,8 +71,11 @@ public static class CompassMath
     /// <summary>Sphere centre in the controller's frame, before mirroring X for the right hand: above and behind the grip (the back of the hand).</summary>
     public static readonly Vector3 LeftHandOffset = new(-0.01f, 0.05f, 0.07f);
 
-    /// <summary>Quad width per sphere diameter; the renderer draws the sphere at <see cref="SphereFraction"/> of the texture.</summary>
-    public const float SphereFraction = 0.88f;
+    /// <summary>
+    /// Sphere diameter per texture (and quad) width. The rest is room for the edge pointer just
+    /// outside the rim; the sphere keeps its set size, only the quad around it is wider.
+    /// </summary>
+    public const float SphereFraction = 0.76f;
 
     public static Vector3 HandOffset(CompassHand hand) =>
         hand == CompassHand.Right ? LeftHandOffset with { X = -LeftHandOffset.X } : LeftHandOffset;
@@ -140,9 +126,8 @@ public static class CompassMath
     /// Keep this quad orientation (physical frame, from an earlier view) instead of facing the head
     /// again, so a transform update between two images keeps the arrows on the drawn image correct.
     /// </param>
-    /// <param name="stereo">Eye offsets and sphere size for <see cref="CompassView.Eyes"/>; <see cref="CompassStereo.Default"/> when null.</param>
     public static CompassView Compute(RigidPose flight, RigidPose physicalHead, RigidPose physicalHand, Vector3 handOffset,
-        Quaternion? heldPhysicalBillboard = null, CompassStereo? stereo = null)
+        Quaternion? heldPhysicalBillboard = null)
     {
         var flownHead = flight * physicalHead;
         var flownHand = flight * physicalHand;
@@ -158,38 +143,8 @@ public static class CompassMath
             Vector3.Transform(real.Right, toQuad));
         var overlayInHand = flownHand.Inverse() * new RigidPose(billboard, centre);
         var physical = Quaternion.Normalize(Quaternion.Conjugate(flight.Orientation) * billboard);
-        // The eyes relative to the quad do not depend on the flight (it moves head and hand together),
-        // so use the physical poses, which stay near the origin and keep float precision.
-        var s = stereo ?? CompassStereo.Default;
-        float radius = s.SphereRadius > 1e-4f && float.IsFinite(s.SphereRadius) ? s.SphereRadius : CompassStereo.Default.SphereRadius;
-        var physicalCentre = physicalHand.Transform(handOffset);
-        var toPhysicalQuad = Quaternion.Conjugate(physical);
-        Vector3 Eye(Vector3 inHead) => Vector3.Transform(physicalHead.Transform(inHead) - physicalCentre, toPhysicalQuad) / radius;
-        return new(overlayInHand, axes, physical, new(Eye(s.LeftEyeInHead), Eye(s.RightEyeInHead)));
+        return new(overlayInHand, axes, physical);
     }
-
-    /// <summary>Eyes closer than this (sphere radii) are treated as this far, so projections stay finite.</summary>
-    public const float MinimumEyeDistance = 2;
-
-    /// <summary>
-    /// Where a point of the gizmo appears on the quad for one eye: the ray from the eye through
-    /// the point meets the quad plane (z = 0). Point and eye are in the quad's frame in sphere radii
-    /// (the sphere is the unit sphere at the origin, the eye in front at +Z), and so is the result.
-    /// A point in front of the plane lands farther out than it is and one behind it closer in, by
-    /// opposite amounts for the two eyes: that difference is the stereo depth.
-    /// </summary>
-    public static Vector2 Project(Vector3 point, Vector3 eye)
-    {
-        float distance = MathF.Max(eye.Z, MinimumEyeDistance);
-        float scale = distance / MathF.Max(distance - point.Z, 0.25f);
-        return new(eye.X + (point.X - eye.X) * scale, eye.Y + (point.Y - eye.Y) * scale);
-    }
-
-    /// <summary>
-    /// Horizontal disparity of <paramref name="point"/>: its x on the left eye's image minus its x on
-    /// the right eye's. Positive (crossed) means in front of the quad, toward the viewer; negative behind it.
-    /// </summary>
-    public static float Disparity(Vector3 point, CompassEyes eyes) => Project(point, eyes.Left).X - Project(point, eyes.Right).X;
 
     /// <summary>Angle between two orientations, in radians.</summary>
     public static float Angle(Quaternion a, Quaternion b)
@@ -200,15 +155,74 @@ public static class CompassMath
 }
 
 /// <summary>
-/// Draws one side-by-side stereo compass image (straight, not premultiplied, alpha): the left
-/// eye's view in the left <see cref="Size"/> × <see cref="Size"/> half and the right eye's in the right
-/// half, so the buffer is <c>2 * Size</c> pixels wide, <see cref="Size"/> tall, 4 bytes a pixel, rows packed.
+/// The navball: the half of the sphere facing the viewer, shaded by the real frame (sky above the
+/// real horizon, ground below), with real down as a dot at its pole (a hollow ring when the pole is
+/// on the far half) and a pointer just outside the rim toward real down. Image coordinates are the
+/// quad's x (right) and y (up) in sphere radii; the visible face at (x, y) is the sphere point
+/// (x, y, sqrt(1 - x² - y²)).
 /// </summary>
+public static class NavballMath
+{
+    /// <summary>Real up in the quad's frame.</summary>
+    public static Vector3 Up(CompassAxes axes) => -axes.Down;
+
+    /// <summary>The sphere point seen at <paramref name="image"/> (inside the unit disc) on the near half.</summary>
+    public static Vector3 FrontPoint(Vector2 image)
+    {
+        float z2 = 1 - image.LengthSquared();
+        return new(image.X, image.Y, z2 > 0 ? MathF.Sqrt(z2) : 0);
+    }
+
+    /// <summary>True when the visible face at <paramref name="image"/> lies above the real horizon.</summary>
+    public static bool IsSky(Vector2 image, CompassAxes axes) => Vector3.Dot(FrontPoint(image), Up(axes)) > 0;
+
+    /// <summary>True when real down lies on the near half (drawn as a dot); false on the far half (a ring).</summary>
+    public static bool PoleOnFront(CompassAxes axes) => axes.Down.Z >= 0;
+
+    /// <summary>Where the down pole appears on the image (front or back, both project inside the disc).</summary>
+    public static Vector2 PoleInImage(CompassAxes axes) => new(axes.Down.X, axes.Down.Y);
+
+    /// <summary>
+    /// Unit direction on the image toward real down, for the edge pointer. Straight down on the image
+    /// when real down points straight at or away from the viewer and has no direction on the image.
+    /// </summary>
+    public static Vector2 PointerDirection(CompassAxes axes)
+    {
+        var onImage = PoleInImage(axes);
+        return onImage.LengthSquared() > 1e-8f ? Vector2.Normalize(onImage) : -Vector2.UnitY;
+    }
+
+    /// <summary>The pointer's angle on the image in degrees, counter-clockwise from +x: -90 is straight down.</summary>
+    public static float PointerDegrees(CompassAxes axes)
+    {
+        var direction = PointerDirection(axes);
+        return MathF.Atan2(direction.Y, direction.X) * 180 / MathF.PI;
+    }
+
+    /// <summary>
+    /// The real horizon's front half: it runs from <c>Side</c> through <c>Near</c> (its point closest
+    /// to the viewer) to <c>-Side</c>, both on the rim at <c>±Side</c>. <c>SkyRim</c> is the rim point
+    /// highest in the real frame. Null when real up points straight at or away from the viewer:
+    /// the horizon is then the rim itself and the whole face is sky (<see cref="IsSky"/> at the centre) or ground.
+    /// </summary>
+    public static (Vector3 Side, Vector3 Near, Vector3 SkyRim)? Horizon(CompassAxes axes)
+    {
+        var up = Vector3.Normalize(Up(axes));
+        var side = Vector3.Cross(up, Vector3.UnitZ);
+        if (side.LengthSquared() < 1e-8f) return null;
+        side = Vector3.Normalize(side);
+        var near = Vector3.Normalize(Vector3.UnitZ - up.Z * up);
+        var skyRim = Vector3.Normalize(new Vector3(up.X, up.Y, 0));
+        return (side, near, skyRim);
+    }
+}
+
+/// <summary>Draws one compass image into a square RGBA buffer (straight, not premultiplied, alpha).</summary>
 public interface ICompassRenderer
 {
-    /// <summary>Width and height of one eye's half, in pixels.</summary>
+    /// <summary>Texture width and height in pixels.</summary>
     int Size { get; }
-    void Render(CompassAxes axes, CompassGlow glow, CompassEyes eyes, Span<byte> rgba);
+    void Render(CompassAxes axes, CompassGlow glow, Span<byte> rgba);
 }
 
 public enum CompassState
@@ -219,7 +233,7 @@ public enum CompassState
     WaitingForFlight,
     /// <summary>The chosen controller or the HMD is not tracked.</summary>
     WaitingForTracking,
-    /// <summary>SteamVR has not accepted the stereo flag or the first image yet; retrying with backoff.</summary>
+    /// <summary>SteamVR has not accepted the first image yet; retrying with backoff.</summary>
     WaitingForSteamVr,
     Visible,
     /// <summary>SteamVR has no overlay interface or refused the overlay; flight is unaffected.</summary>
@@ -229,12 +243,12 @@ public enum CompassState
 /// <param name="Detail">Why it is unavailable or still waiting for SteamVR.</param>
 public sealed record CompassStatus(CompassState State, CompassHand Hand, string? Detail = null)
 {
-    /// <summary>Image submissions or stereo-flag calls SteamVR refused so far (each kept the last good image).</summary>
+    /// <summary>Image submissions SteamVR refused so far (each kept the last good image).</summary>
     public int Refusals { get; init; }
     public string? LastRefusal { get; init; }
     /// <summary>Images sent over the last full second.</summary>
     public float ImagesPerSecond { get; init; }
-    /// <summary>Mean CPU time to draw one stereo image over the last second.</summary>
+    /// <summary>Mean CPU time to draw one image over the last second.</summary>
     public float DrawMilliseconds { get; init; }
     /// <summary>Mean time the compass held the OpenVR lock (shared with the flight loop) per image over the last second.</summary>
     public float SteamVrMilliseconds { get; init; }

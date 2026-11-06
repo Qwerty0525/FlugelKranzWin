@@ -883,6 +883,69 @@ SteamVR sizes the side-by-side quad from half the texture width (assumed;
 the sphere would look squashed otherwise), and stutter with the compass on
 and off.
 
+## 2026-11-06 — Gravity compass: navball, mono (stereo on hold)
+
+Affected files: `src/FlugelKranz.Core/GravityCompass.cs`,
+`src/FlugelKranz.OpenVR/CompassOverlay.cs`,
+`src/FlugelKranz/Compass/CompassRenderer.cs`, the new
+`src/FlugelKranz/Compass/NavballDesign.cs`, both language tables,
+`WINDOWS.md`, `tests/FlugelKranz.Tests/CompassMathTests.cs`,
+`CompassOverlayTests.cs` and `CompassSteamVrSelfTest.cs`.
+
+The user put the stereo picture of the previous section on hold and chose a
+clearer 2D design. The D3D11 texture path, its reuse and release, the
+refusal backoff and the status line from that section stay. The
+side-by-side flag, the per-eye projection and the eye offsets are removed
+from this build; that code is kept, unchanged, on the local branch
+`compass-stereo-sbs` (commit b97356d), which this branch also contains in
+its history.
+
+**Navball.** Only the half of the sphere facing the HMD is drawn, so what is
+seen is always the near side and there is no front / back ambiguity. The
+face is shaded by the real frame: above the real horizon a faint sky tint
+(rgba(120, 165, 220, 0.27)), below it a faint ground tint
+(rgba(190, 140, 95, 0.37)), with a bright thin line on the real horizontal
+great circle between them, inside a thin faint outline; no reflections or
+highlights. Real down is a glowing dot in the chosen colour (teal, lime or
+amber) at its pole when the pole is on the near half, and a dimmer hollow ring
+where it projects when it is on the far half. A small glowing triangle just
+outside the rim always points toward real down on the image. The forward /
+right arrows are gone. The geometry is in `NavballMath` (Core): which face
+point is sky, whether the pole is in front, the pointer direction (straight
+down on the image when real down points straight at or away from the eye),
+and the front half of the horizon. The image is still the real axes in the
+quad's frame from `CompassMath.Compute`, so it does not change when the
+flight turns the world: it shows real down as the eye sees it while the
+flown world tilts around it.
+
+**Swappable design.** `CompassRenderer` now only owns the reused bitmap,
+the copy into the texture buffer and PNG export; the look is an
+`ICompassDesign` (`NavballDesign` by default), so another 2D design is one
+class. The quad is wider around the same sphere (sphere at 76 % of the width,
+was 88 %) to leave room for the pointer; the sphere keeps its set size. The
+image only depends on the view direction, so it is redrawn when the quad
+turns by more than 0.5°, at most once per 30 ms. Drawing takes about 0.6 ms
+here (was 1.9 ms for the stereo arrows), about 2 % of one core at 32 images
+a second. The glow colour setting is now labelled as the gravity marker's
+colour; the settings themselves are unchanged.
+
+### Testing
+
+`CompassMathTests`: sky and ground at sample points, the pole in front or
+behind and the pointer angle for a real frame seen looking down 30° at the
+hand (pole behind, pointer −90°), with the head rolled 90° (180°), looking up
+45° (pole in front, −90°) and upside down (+90°), each also under roll 90°,
+pitch 45° and a combined flight (no change); the horizon dipping below the
+centre when looking down; looking straight down (all sky, no horizon,
+pointer falls back to down). `CompassOverlayTests`: the overlay cases on the
+mono texture (256 × 256 here, 8 × 8 with the fake renderer), and the
+rendered pixels: sky and ground tints, the bright horizon, the hollow ring
+versus the dot, the amber colour, and the pointer just outside the rim on
+the down side only and inside the texture. `RenderPreviewImagesWhenAsked`
+writes the four views, lime / amber, mocks of the flown view for flight roll
+90°, pitch 45° and upside down, and `timing.txt`. The SteamVR self-test now
+submits navball images.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

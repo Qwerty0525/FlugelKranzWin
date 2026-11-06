@@ -33,6 +33,14 @@ public class CompassOverlayTests
     private static CompassSettings Always(CompassHand hand = CompassHand.Left) =>
         CompassSettings.Default with { Visibility = CompassVisibility.Always, Hand = hand };
 
+    /// <summary>The head circling the left-hand sphere at a constant distance, about 1.1 degrees a step.</summary>
+    private static RigidPose Orbiting(int step)
+    {
+        var centre = LeftHand.Transform(CompassMath.LeftHandOffset);
+        var around = Quaternion.CreateFromAxisAngle(Vector3.UnitY, step * 0.02f);
+        return Head with { Position = centre + Vector3.Transform(Head.Position - centre, around) };
+    }
+
     [Fact]
     public void ShowsOnlyWhileFlyingByDefaultOnTheRightController()
     {
@@ -46,13 +54,12 @@ public class CompassOverlayTests
         overlay.Tick();
         Assert.Equal(CompassState.Visible, overlay.Status.State);
         Assert.True(api.Visible);
-        Assert.True(api.Stereo);
         Assert.Equal(4u, api.Device);
         Assert.Equal(CompassHand.Right, overlay.Status.Hand);
         Assert.Equal(1, overlay.ImagesDrawn);
-        Assert.InRange(api.Width, 0.0511f, 0.0512f); // 4.5 cm sphere on a quad 1/0.88 as wide
-        // Side by side: both eyes' halves in one texture twice as wide as it is tall.
-        Assert.Equal((16, 8), api.ImageSize);
+        // A 4.5 cm sphere on a quad 1/0.76 as wide (room for the edge pointer).
+        Assert.InRange(api.Width, 0.0592f, 0.0593f);
+        Assert.Equal((8, 8), api.ImageSize);
 
         overlay.SetFlightActive(false);
         overlay.Tick();
@@ -83,8 +90,8 @@ public class CompassOverlayTests
         overlay.Tick();
         Assert.Equal(4u, api.Device);
         Assert.Equal(3, overlay.ImagesDrawn);
-        // A size change redraws at once too (the eyes are measured in sphere radii).
-        set(CompassSettings.Default with { Visibility = CompassVisibility.Always, SizeCentimetres = 6 });
+        // A colour change redraws at once too.
+        set(CompassSettings.Default with { Visibility = CompassVisibility.Always, Glow = CompassGlow.Amber });
         time.Advance(TimeSpan.FromMilliseconds(15));
         overlay.Tick();
         Assert.Equal(4, overlay.ImagesDrawn);
@@ -154,44 +161,6 @@ public class CompassOverlayTests
     }
 
     [Fact]
-    public void EachImageIsDrawnFromBothEyesAsSteamVrReportsThem()
-    {
-        var renderer = new CountingRenderer();
-        var api = new FakeApi { Eyes = (new(-0.030f, 0, 0.01f), new(0.030f, 0, 0.01f)) };
-        var (overlay, _, time, _) = Create(Always(), renderer, api);
-        overlay.Publish(Frame(Head, LeftHand), 3, 4);
-        overlay.Tick();
-        float radius = CompassSettings.Default.SizeCentimetres / 200;
-        Assert.InRange(Vector3.Distance(renderer.LastEyes.Left, renderer.LastEyes.Right) * radius, 0.0599f, 0.0601f);
-        // The left eye is on the image's left, both in front of the quad.
-        Assert.True(renderer.LastEyes.Left.X < renderer.LastEyes.Right.X);
-        Assert.True(renderer.LastEyes.Left.Z > 5 && renderer.LastEyes.Right.Z > 5);
-        Assert.Equal(1, api.EyeReads);
-
-        // Read again every 2 s; nonsense from SteamVR keeps the last good eyes.
-        api.Eyes = (Vector3.Zero, Vector3.Zero);
-        for (int i = 0; i < 140; i++) { time.Advance(TimeSpan.FromMilliseconds(15)); overlay.Tick(); }
-        Assert.Equal(2, api.EyeReads);
-        overlay.Publish(Frame(Head with { Position = Head.Position + new Vector3(0.05f, 0, 0) }, LeftHand), 3, 4);
-        time.Advance(TimeSpan.FromMilliseconds(30));
-        overlay.Tick();
-        Assert.InRange(Vector3.Distance(renderer.LastEyes.Left, renderer.LastEyes.Right) * radius, 0.0599f, 0.0601f);
-    }
-
-    [Fact]
-    public void MissingEyeOffsetsFallBackToA64MillimetreIpd()
-    {
-        var renderer = new CountingRenderer();
-        var api = new FakeApi { FailEyes = true };
-        var (overlay, _, _, _) = Create(Always(), renderer, api);
-        overlay.Publish(Frame(Head, LeftHand), 3, 4);
-        overlay.Tick();
-        Assert.True(api.Visible);
-        float radius = CompassSettings.Default.SizeCentimetres / 200;
-        Assert.InRange(Vector3.Distance(renderer.LastEyes.Left, renderer.LastEyes.Right) * radius, 0.0639f, 0.0641f);
-    }
-
-    [Fact]
     public void RefusedImagesKeepTheCompassAndRetryLater()
     {
         var (overlay, api, time, _) = Create(CompassSettings.Default with { Visibility = CompassVisibility.Always });
@@ -203,8 +172,7 @@ public class CompassOverlayTests
         for (int i = 1; i <= 200; i++)
         {
             time.Advance(TimeSpan.FromMilliseconds(15));
-            var head = Head with { Position = Head.Position + new Vector3(i * 0.01f, 0, 0) };
-            overlay.Publish(Frame(head, LeftHand), 3, 4);
+            overlay.Publish(Frame(Orbiting(i), LeftHand), 3, 4);
             overlay.Tick();
             Assert.True(api.Visible, $"still shown at tick {i}");
             Assert.Equal(CompassState.Visible, overlay.Status.State);
@@ -234,28 +202,6 @@ public class CompassOverlayTests
     }
 
     [Fact]
-    public void RefusedStereoFlagShowsNothingAndIsRetriedWithBackoff()
-    {
-        // Without the side-by-side flag both halves would show next to each other.
-        var (overlay, api, time, _) = Create(Always());
-        api.RefuseStereo = 3;
-        overlay.Publish(Frame(Head, LeftHand), 3, 4);
-        overlay.Tick();
-        Assert.Equal(CompassState.WaitingForSteamVr, overlay.Status.State);
-        Assert.Contains("SideBySide", overlay.Status.LastRefusal);
-        Assert.False(api.Visible);
-        Assert.Equal(0, api.ImageCalls);
-        // 250 + 500 + 1000 ms of backoff, then it goes through.
-        int ticks = 0;
-        while (!api.Visible && ticks < 300) { time.Advance(TimeSpan.FromMilliseconds(15)); overlay.Tick(); ticks++; }
-        Assert.True(api.Visible);
-        Assert.Equal(4, api.StereoCalls);
-        Assert.InRange(ticks * 15, 1750, 1800);
-        Assert.Equal(CompassState.Visible, overlay.Status.State);
-        Assert.Equal(3, overlay.Status.Refusals);
-    }
-
-    [Fact]
     public void ShortSteamVrErrorsDoNotDisableTheCompassButLastingOnesDo()
     {
         var (overlay, api, time, _) = Create(Always());
@@ -281,7 +227,7 @@ public class CompassOverlayTests
         for (int i = 1; i <= 140; i++)
         {
             time.Advance(TimeSpan.FromMilliseconds(15));
-            overlay.Publish(Frame(Head with { Position = Head.Position + new Vector3(i * 0.005f, 0, 0) }, LeftHand), 3, 4);
+            overlay.Publish(Frame(Orbiting(i), LeftHand), 3, 4);
             overlay.Tick();
         }
         Assert.InRange(overlay.Status.ImagesPerSecond, 30, 35);
@@ -347,69 +293,90 @@ public class CompassOverlayTests
         Assert.True(api.Disposed);
     }
 
-    private static CompassEyes EyesAt(float distance) =>
-        new(new(-0.032f / 0.0225f, 0, distance / 0.0225f), new(0.032f / 0.0225f, 0, distance / 0.0225f));
+    /// <summary>Real down as seen looking down 30 degrees at the ball: on its far half, toward the bottom.</summary>
+    private static readonly CompassAxes LookingDown = new(Vector3.Normalize(new(0, -0.866f, -0.5f)), -Vector3.UnitZ, Vector3.UnitX);
+    /// <summary>Real down as seen looking up 45 degrees at the ball: on its near half.</summary>
+    private static readonly CompassAxes LookingUp = new(Vector3.Normalize(new(0, -0.707f, 0.707f)), -Vector3.UnitZ, Vector3.UnitX);
+
+    private static (byte R, byte G, byte B, byte A) Pixel(byte[] pixels, int size, float x, float y)
+    {
+        // Image coordinates in sphere radii (y up) to pixels.
+        float radius = size * CompassMath.SphereFraction / 2;
+        int px = (int)MathF.Round(size / 2f + x * radius), py = (int)MathF.Round(size / 2f - y * radius);
+        int i = (py * size + px) * 4;
+        return (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]);
+    }
 
     [Fact]
-    public void RendererDrawsAGlowingGravityArrowBelowTheCentreInBothHalves()
+    public void NavballShadesSkyAndGroundAndDrawsTheHorizon()
     {
         using var renderer = new CompassRenderer();
-        var view = CompassMath.Compute(RigidPose.Identity, Head with { Position = new(0, 1.6f, 0.3f) },
-            new(Quaternion.Identity, new(0, 1.55f, -0.1f)), Vector3.Zero);
-        var pixels = new byte[renderer.Size * renderer.Size * 8];
-        renderer.Render(view.Axes, CompassGlow.Teal, view.Eyes, pixels);
         int size = renderer.Size;
-        foreach (int half in new[] { 0, size })
-        {
-            (byte R, byte G, byte B, byte A) At(int x, int y) { int i = (y * 2 * size + half + x) * 4; return (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]); }
-            // Corners are clear; the sphere fill is faint.
-            Assert.Equal(0, At(2, 2).A);
-            Assert.InRange(At(size / 2 + 40, size / 2 - 60).A, 1, 80);
-            // The gravity arrow runs straight down from the centre in teal.
-            var arrow = At(size / 2, size / 2 + 60);
-            Assert.True(arrow.A > 180 && arrow.G > arrow.R + 40, $"arrow pixel {arrow} in half {half}");
-            // The glow spills a little beside the stroke.
-            Assert.True(At(size / 2 + 9, size / 2 + 60).A > At(size / 2 + 30, size / 2 + 60).A);
-            // Nothing from one eye's view bleeds into the other half.
-            Assert.Equal(0, At(0, size / 2).A);
-            Assert.Equal(0, At(size - 1, size / 2).A);
-        }
+        var pixels = new byte[size * size * 4];
+        renderer.Render(LookingDown, CompassGlow.Teal, pixels);
+        // Corners are clear; nothing beyond the rim except the pointer.
+        Assert.Equal(0, pixels[3]);
+        Assert.Equal(0, Pixel(pixels, size, 0, 1.25f).A);
+        // Sky tint above the horizon, ground tint below it (the horizon dips to y = -0.5 here).
+        var sky = Pixel(pixels, size, 0, 0.5f);
+        Assert.True(sky.B > sky.R + 60 && sky.A is > 50 and < 90, $"sky {sky}");
+        var alsoSky = Pixel(pixels, size, 0.2f, -0.3f);
+        Assert.True(alsoSky.B > alsoSky.R + 60, $"sky just above the horizon {alsoSky}");
+        var ground = Pixel(pixels, size, -0.5f, -0.75f);
+        Assert.True(ground.R > ground.B + 60 && ground.A is > 75 and < 115, $"ground {ground}");
+        // A bright, nearly white horizon line where they meet.
+        var horizon = Pixel(pixels, size, 0, -0.5f);
+        Assert.True(horizon.A > 180 && horizon.R > 190 && horizon.B > 190, $"horizon {horizon}");
+    }
+
+    [Fact]
+    public void DownIsAHollowRingBehindAndADotInFront()
+    {
+        using var renderer = new CompassRenderer();
+        int size = renderer.Size;
+        float ring = 0.032f * size / (size * CompassMath.SphereFraction / 2);
+        var pixels = new byte[size * size * 4];
+
+        renderer.Render(LookingDown, CompassGlow.Teal, pixels);
+        var hollow = Pixel(pixels, size, 0, -0.866f);
+        var rim = Pixel(pixels, size, ring, -0.866f);
+        Assert.True(rim.A > hollow.A + 30, $"ring {rim} brighter than its middle {hollow}");
+        Assert.True(rim.G > rim.R + 40, $"ring in the glow colour {rim}");
+
+        renderer.Render(LookingUp, CompassGlow.Teal, pixels);
+        var dot = Pixel(pixels, size, 0, -0.707f);
+        Assert.True(dot.A > 230 && dot.G > dot.R + 40, $"dot {dot}");
+        renderer.Render(LookingUp, CompassGlow.Amber, pixels);
+        var amber = Pixel(pixels, size, 0, -0.707f);
+        Assert.True(amber.R > amber.B + 60, $"amber dot {amber}");
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void ArrowTowardTheViewerHasCrossedDisparityAndAwayUncrossed(bool toward)
+    [InlineData(0, -1)]
+    [InlineData(-1, 0)]
+    [InlineData(0, 1)]
+    public void EdgePointerSitsJustOutsideTheRimTowardRealDown(float x, float y)
     {
         using var renderer = new CompassRenderer();
         int size = renderer.Size;
-        var forward = Vector3.Normalize(new(0.6f, 0.2f, toward ? 0.75f : -0.75f));
-        var axes = new CompassAxes(-Vector3.UnitY, forward, Vector3.Normalize(Vector3.Cross(-Vector3.UnitY, forward)));
-        var pixels = new byte[size * size * 8];
-        renderer.Render(axes, CompassGlow.Teal, EyesAt(0.4f), pixels);
-        // Centroid of the blue forward arrow in each half.
-        float Centroid(int half)
-        {
-            double sum = 0; int count = 0;
-            for (int y = 0; y < size; y++)
-                for (int x = 0; x < size; x++)
-                {
-                    int i = (y * 2 * size + half + x) * 4;
-                    // Blue enough to be the forward arrow (dimmed to about 70 / 255 on the far half).
-                    if (pixels[i + 3] > 40 && pixels[i + 2] > pixels[i] + 60 && pixels[i + 2] > pixels[i + 1] + 30) { sum += x; count++; }
-                }
-            Assert.True(count > 40, $"forward arrow found in half {half}: {count} px");
-            return (float)(sum / count);
-        }
-        float disparity = Centroid(0) - Centroid(size);
-        if (toward) Assert.True(disparity > 3, $"toward the viewer: left - right = {disparity} px");
-        else Assert.True(disparity < -3, $"away from the viewer: left - right = {disparity} px");
+        var pixels = new byte[size * size * 4];
+        // Real down on the far half, in the given direction on the image.
+        var axes = new CompassAxes(Vector3.Normalize(new(x * 0.8f, y * 0.8f, -0.6f)), -Vector3.UnitZ, Vector3.UnitX);
+        renderer.Render(axes, CompassGlow.Teal, pixels);
+        float beyond = 1 + 0.05f * size / (size * CompassMath.SphereFraction / 2);
+        var pointer = Pixel(pixels, size, x * beyond, y * beyond);
+        Assert.True(pointer.A > 180 && pointer.G > pointer.R + 40, $"pointer {pointer}");
+        Assert.Equal(0, Pixel(pixels, size, -x * beyond, -y * beyond).A);
+        // It fits in the texture with its glow.
+        Assert.Equal(0, Pixel(pixels, size, x * 1.31f, y * 1.31f).A);
     }
 
     /// <summary>
-    /// Saves the stereo texture for identity, rolled 90 degrees and pitched 45 degrees flight when
-    /// FLUGELKRANZ_COMPASS_PNG names a folder: the texture itself (transparent, left eye on the left)
-    /// and a copy on a dark background. Also writes timing.txt with the draw and GPU upload cost.
+    /// Saves navball previews when FLUGELKRANZ_COMPASS_PNG names a folder: the texture (transparent)
+    /// and on a dark background for real frames tilted against the eye (looking down 30° at the
+    /// hand, head rolled 90°, looking up 45°, head upside down); a mock of the flown view for flight
+    /// roll 90°, pitch 45° and upside down with the head level (the ball does not change: it shows
+    /// real down as the eye sees it, while the flown world tilts); and timing.txt.
     /// </summary>
     [Fact]
     public void RenderPreviewImagesWhenAsked()
@@ -418,44 +385,61 @@ public class CompassOverlayTests
         if (string.IsNullOrWhiteSpace(folder)) return;
         Directory.CreateDirectory(folder);
         using var renderer = new CompassRenderer();
-        // Looking down at the right hand from slightly behind, head level.
-        var head = new RigidPose(Quaternion.CreateFromAxisAngle(Vector3.UnitX, -0.6f), new(0, 1.6f, 0));
-        var hand = new RigidPose(Quaternion.CreateFromAxisAngle(Vector3.UnitX, 0.3f), new(0.05f, 1.15f, -0.38f));
-        var offset = CompassMath.HandOffset(CompassHand.Right);
-        var cases = new (string Name, RigidPose Flight, CompassGlow Glow)[]
+        static float Radians(float degrees) => degrees * MathF.PI / 180;
+        static (RigidPose Head, RigidPose Ball) Looking(float pitch, float roll)
         {
-            ("identity", RigidPose.Identity, CompassGlow.Teal),
-            ("roll90", new(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2), new(0, 3, 0)), CompassGlow.Teal),
-            ("pitch45", new(Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI / 4), new(0, 0, -2)), CompassGlow.Teal),
-            ("identity-lime", RigidPose.Identity, CompassGlow.Lime),
-            ("identity-amber", RigidPose.Identity, CompassGlow.Amber)
+            var orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, Radians(pitch)) * Quaternion.CreateFromAxisAngle(Vector3.UnitZ, Radians(roll));
+            var head = new RigidPose(orientation, new(0, 1.6f, 0));
+            return (head, new RigidPose(Quaternion.Identity, head.Transform(new(0, 0, -0.4f))));
+        }
+        var views = new (string Name, float Pitch, float Roll, CompassGlow Glow)[]
+        {
+            ("identity", -30, 0, CompassGlow.Teal),
+            ("roll90", -30, 90, CompassGlow.Teal),
+            ("pitch45", 45, 0, CompassGlow.Teal),
+            ("upside-down", -30, 180, CompassGlow.Teal),
+            ("identity-lime", -30, 0, CompassGlow.Lime),
+            ("identity-amber", -30, 0, CompassGlow.Amber)
         };
-        foreach (var (name, flight, glow) in cases)
+        foreach (var (name, pitch, roll, glow) in views)
         {
-            var view = CompassMath.Compute(flight, head, hand, offset);
-            var png = renderer.RenderPng(view.Axes, glow, view.Eyes);
-            File.WriteAllBytes(Path.Combine(folder, $"compass-stereo-{name}.png"), png);
-            File.WriteAllBytes(Path.Combine(folder, $"compass-stereo-{name}-dark.png"), OnDark(png, renderer.Size, name));
-            if (!name.Contains('-'))
-                File.WriteAllBytes(Path.Combine(folder, $"compass-stereo-{name}-in-view.png"), InView(png, renderer.Size, flight, head, name));
+            var (head, ball) = Looking(pitch, roll);
+            var view = CompassMath.Compute(RigidPose.Identity, head, ball, Vector3.Zero);
+            var png = renderer.RenderPng(view.Axes, glow);
+            File.WriteAllBytes(Path.Combine(folder, $"navball-{name}.png"), png);
+            File.WriteAllBytes(Path.Combine(folder, $"navball-{name}-dark.png"), OnDark(png, renderer.Size, name));
+        }
+        var flights = new (string Name, RigidPose Flight)[]
+        {
+            ("identity", RigidPose.Identity),
+            ("roll90", new(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2), new(0, 3, 0))),
+            ("pitch45", new(Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI / 4), new(0, 0, -2))),
+            ("upside-down", new(Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI), new(0, 3.2f, 0)))
+        };
+        var (levelHead, levelBall) = Looking(-30, 0);
+        foreach (var (name, flight) in flights)
+        {
+            var view = CompassMath.Compute(flight, levelHead, levelBall, Vector3.Zero);
+            File.WriteAllBytes(Path.Combine(folder, $"navball-flight-{name}-in-view.png"),
+                InView(renderer.RenderPng(view.Axes, CompassGlow.Teal), renderer.Size, flight, levelHead, name));
         }
 
-        // Cost of one stereo image: Skia drawing on the CPU, then the copy into a reused D3D11 texture.
-        var still = CompassMath.Compute(RigidPose.Identity, head, hand, offset);
-        var pixels = new byte[renderer.Size * renderer.Size * 8];
-        for (int i = 0; i < 20; i++) renderer.Render(still.Axes, CompassGlow.Teal, still.Eyes, pixels);
+        // Cost of one image: Skia drawing on the CPU, then the copy into a reused D3D11 texture.
+        var still = CompassMath.Compute(RigidPose.Identity, levelHead, levelBall, Vector3.Zero);
+        var pixels = new byte[renderer.Size * renderer.Size * 4];
+        for (int i = 0; i < 20; i++) renderer.Render(still.Axes, CompassGlow.Teal, pixels);
         const int frames = 300;
         var watch = Stopwatch.StartNew();
         for (int i = 0; i < frames; i++)
         {
-            var moving = CompassMath.Compute(RigidPose.Identity, head with { Position = head.Position + new Vector3(i * 1e-4f, 0, 0) }, hand, offset);
-            renderer.Render(moving.Axes, CompassGlow.Teal, moving.Eyes, pixels);
+            var moving = CompassMath.Compute(RigidPose.Identity, levelHead with { Position = levelHead.Position + new Vector3(i * 1e-3f, 0, 0) }, levelBall, Vector3.Zero);
+            renderer.Render(moving.Axes, CompassGlow.Teal, pixels);
         }
         double drawMs = watch.Elapsed.TotalMilliseconds / frames;
         string upload;
         try
         {
-            using var texture = D3D11OverlayTexture.Create(0, 2 * renderer.Size, renderer.Size);
+            using var texture = D3D11OverlayTexture.Create(0, renderer.Size, renderer.Size);
             for (int i = 0; i < 20; i++) { texture.Upload(pixels); texture.Flush(); }
             watch.Restart();
             for (int i = 0; i < frames; i++) { texture.Upload(pixels); texture.Flush(); }
@@ -463,69 +447,56 @@ public class CompassOverlayTests
         }
         catch (InvalidOperationException exception) { upload = "no D3D11 device: " + exception.Message; }
         File.WriteAllText(Path.Combine(folder, "timing.txt"),
-            $"stereo {2 * renderer.Size}x{renderer.Size} draw: {drawMs.ToString("0.000", CultureInfo.InvariantCulture)} ms per image (mean of {frames})\n" +
+            $"navball {renderer.Size}x{renderer.Size} draw: {drawMs.ToString("0.000", CultureInfo.InvariantCulture)} ms per image (mean of {frames})\n" +
             $"upload: {upload}\n" +
             $"at 32 images/s: {(drawMs * 32 / 10).ToString("0.00", CultureInfo.InvariantCulture)} % of one core for drawing\n");
     }
 
-    /// <summary>The stereo texture on a dark background with the two halves labelled.</summary>
+    /// <summary>The texture on a dark background with a label.</summary>
     private static byte[] OnDark(byte[] texturePng, int size, string name)
     {
-        int width = 2 * size + 48, height = size + 56;
+        int width = size + 32, height = size + 48;
         using var surface = SKSurface.Create(new SKImageInfo(width, height));
         var canvas = surface.Canvas;
         canvas.Clear(new SKColor(0x0b, 0x0e, 0x14));
         using var texture = SKImage.FromEncodedData(texturePng);
-        canvas.DrawImage(texture, 16, 40);
-        using var line = new SKPaint { Color = new SKColor(0x33, 0x3a, 0x48), StrokeWidth = 1 };
-        canvas.DrawLine(16 + size + 0.5f, 40, 16 + size + 0.5f, 40 + size, line);
+        canvas.DrawImage(texture, 16, 36);
         using var label = new SKPaint { Color = new SKColor(0x90, 0x98, 0xa8), IsAntialias = true };
         using var font = new SKFont { Size = 14 };
-        canvas.DrawText($"{name}: left eye", 16, 26, font, label);
-        canvas.DrawText("right eye", 16 + size + 16, 26, font, label);
+        canvas.DrawText(name, 16, 24, font, label);
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);
         return data.ToArray();
     }
 
-    /// <summary>
-    /// Each eye's half over a dark scene whose horizon is the flown world's as seen from the head,
-    /// so the flown world tilts while the compass keeps showing the real floor.
-    /// </summary>
+    /// <summary>The texture over a dark scene whose horizon is the flown world's, as seen from the physical head.</summary>
     private static byte[] InView(byte[] texturePng, int size, RigidPose flight, RigidPose head, string name)
     {
-        const int panel = 320, height = 360;
-        using var surface = SKSurface.Create(new SKImageInfo(2 * panel, height));
+        const int width = 520, height = 400;
+        using var surface = SKSurface.Create(new SKImageInfo(width, height));
         var canvas = surface.Canvas;
-        canvas.Clear(new SKColor(0x0b, 0x0e, 0x14));
         // The flown world's up, in the eye's frame: (D * H)^-1 applied to +Y.
         var worldUp = Vector3.Transform(Vector3.UnitY, Quaternion.Conjugate(flight.Orientation * head.Orientation));
         float angle = MathF.Atan2(worldUp.X, worldUp.Y) * 180 / MathF.PI;
+        canvas.Clear(new SKColor(0x0b, 0x0e, 0x14));
+        canvas.Save();
+        canvas.Translate(width / 2f, height / 2f);
+        canvas.RotateDegrees(angle);
         // Pinhole view (focal 300 px): the horizon sits uz / |(ux, uy)| above the centre along world up.
         float sideways = MathF.Max(1e-3f, MathF.Sqrt(worldUp.X * worldUp.X + worldUp.Y * worldUp.Y));
         float horizon = Math.Clamp(-worldUp.Z / sideways * 300, -900, 900);
+        using (var sky = new SKPaint { Color = new SKColor(0x1b, 0x22, 0x33) })
+            canvas.DrawRect(new SKRect(-1000, -2000, 1000, horizon), sky);
+        using (var ground = new SKPaint { Color = new SKColor(0x12, 0x17, 0x12) })
+            canvas.DrawRect(new SKRect(-1000, horizon, 1000, 2000), ground);
+        using (var line = new SKPaint { Color = new SKColor(0x60, 0x70, 0x88), StrokeWidth = 2, IsAntialias = true })
+            canvas.DrawLine(-1000, horizon, 1000, horizon, line);
+        canvas.Restore();
         using var texture = SKImage.FromEncodedData(texturePng);
-        for (int eye = 0; eye < 2; eye++)
-        {
-            canvas.Save();
-            canvas.ClipRect(new SKRect(eye * panel, 0, (eye + 1) * panel, height));
-            canvas.Translate(eye * panel + panel / 2f, height / 2f);
-            canvas.Save();
-            canvas.RotateDegrees(angle);
-            using (var sky = new SKPaint { Color = new SKColor(0x1b, 0x22, 0x33) })
-                canvas.DrawRect(new SKRect(-1000, -2000, 1000, horizon), sky);
-            using (var ground = new SKPaint { Color = new SKColor(0x12, 0x17, 0x12) })
-                canvas.DrawRect(new SKRect(-1000, horizon, 1000, 2000), ground);
-            using (var line = new SKPaint { Color = new SKColor(0x60, 0x70, 0x88), StrokeWidth = 2, IsAntialias = true })
-                canvas.DrawLine(-1000, horizon, 1000, horizon, line);
-            canvas.Restore();
-            canvas.DrawImage(texture, new SKRect(eye * size, 0, (eye + 1) * size, size),
-                new SKRect(-size / 2f, -size / 2f + 30, size / 2f, size / 2f + 30));
-            canvas.Restore();
-        }
+        canvas.DrawImage(texture, new SKRect(width / 2f - size / 2f, height / 2f - size / 2f + 40, width / 2f + size / 2f, height / 2f + size / 2f + 40));
         using var label = new SKPaint { Color = new SKColor(0x90, 0x98, 0xa8), IsAntialias = true };
         using var font = new SKFont { Size = 14 };
-        canvas.DrawText($"{name}: flown world horizon (game) vs compass (real), left / right eye", 12, 20, font, label);
+        canvas.DrawText($"flight {name}: flown world horizon (game) vs navball (real)", 12, 22, font, label);
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);
         return data.ToArray();
@@ -534,41 +505,22 @@ public class CompassOverlayTests
     internal sealed class CountingRenderer : ICompassRenderer
     {
         public CompassAxes LastAxes;
-        public CompassEyes LastEyes;
         public int Size => 8;
-        public void Render(CompassAxes axes, CompassGlow glow, CompassEyes eyes, Span<byte> rgba)
-        {
-            LastAxes = axes;
-            LastEyes = eyes;
-            rgba.Fill(1);
-        }
+        public void Render(CompassAxes axes, CompassGlow glow, Span<byte> rgba) { LastAxes = axes; rgba.Fill(1); }
     }
 
     internal sealed class FakeApi : ICompassOverlayApi
     {
         public string? CreateError;
-        public int Creates, Transforms, StereoCalls, EyeReads;
-        public bool Visible, Disposed, Stereo, FailEyes;
+        public int Creates, Transforms;
+        public bool Visible, Disposed;
         public uint Device = uint.MaxValue;
         public float Width;
         public RigidPose Transform;
-        public int RefuseImages, RefuseStereo, FailTransforms, ImageCalls;
+        public int RefuseImages, FailTransforms, ImageCalls;
         public (int Width, int Height) ImageSize;
         public TimeSpan Held;
-        public (Vector3 Left, Vector3 Right) Eyes = (new(-0.032f, 0, 0), new(0.032f, 0, 0));
         public string? Create() { Creates++; return CreateError; }
-        public void SetStereo()
-        {
-            StereoCalls++;
-            if (RefuseStereo > 0) { RefuseStereo--; throw new InvalidOperationException("SetOverlayFlag(SideBySide_Parallel): RequestFailed"); }
-            Stereo = true;
-        }
-        public (Vector3 Left, Vector3 Right) ReadEyes()
-        {
-            EyeReads++;
-            if (FailEyes) throw new InvalidOperationException("IVRSystem is not available.");
-            return Eyes;
-        }
         public void SetWidth(float metres) => Width = metres;
         public void SetTransform(uint device, RigidPose overlayInDevice)
         {

@@ -105,71 +105,92 @@ public class CompassMathTests
         Near(still.Axes.Right, flown.Axes.Right);
         Assert.True(still.OverlayInHand.NearlyEquals(flown.OverlayInHand, 1e-4f));
         Assert.True(CompassMath.Angle(still.PhysicalBillboard, flown.PhysicalBillboard) < 1e-3f);
-        // Each eye sees the sphere from the same place whatever the flight: same stereo pair.
-        Assert.True(Vector3.Distance(still.Eyes.Left, flown.Eyes.Left) < 1e-3f, $"{still.Eyes.Left} vs {flown.Eyes.Left}");
-        Assert.True(Vector3.Distance(still.Eyes.Right, flown.Eyes.Right) < 1e-3f, $"{still.Eyes.Right} vs {flown.Eyes.Right}");
+    }
+
+    /// <summary>
+    /// The real axes as seen on a ball on the line of sight of a head pitched by
+    /// <paramref name="pitchDegrees"/> (negative looks down) and then rolled about that line. The quad
+    /// faces the eye, so its frame is the head's.
+    /// </summary>
+    private static CompassAxes Seen(float pitchDegrees, float rollDegrees, RigidPose? flight = null)
+    {
+        var orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, Radians(pitchDegrees)) *
+            Quaternion.CreateFromAxisAngle(Vector3.UnitZ, Radians(rollDegrees));
+        var head = new RigidPose(orientation, new(0, 1.6f, 0));
+        var ball = new RigidPose(Quaternion.Identity, head.Transform(new(0, 0, -0.4f)));
+        var view = CompassMath.Compute(flight ?? RigidPose.Identity, head, ball, Vector3.Zero);
+        return view.Axes;
+    }
+
+    // Cases: looking down 30 degrees at the hand (identity), the head rolled 90 degrees, looking up
+    // 45 degrees at a ball above, and the head upside down. Points are image x / y in sphere radii.
+    public static TheoryData<string, float, float, float, float, float, float> NavballCases => new()
+    {
+        { "identity", -30, 0, 0, 0.5f, 0, -0.85f },
+        { "roll90", -30, 90, 0.5f, 0, -0.85f, 0 },
+        { "pitch45", 45, 0, 0, 0.8f, 0, -0.6f },
+        { "upside-down", -30, 180, 0, -0.5f, 0, 0.85f }
+    };
+
+    [Theory]
+    [MemberData(nameof(NavballCases))]
+    public void NavballShadesSkyAboveTheRealHorizonAndGroundBelow(string name, float pitch, float roll,
+        float skyX, float skyY, float groundX, float groundY)
+    {
+        foreach (var flight in new[] { RigidPose.Identity, Roll(90), Pitch(45), Combined() })
+        {
+            var axes = Seen(pitch, roll, flight);
+            Assert.True(NavballMath.IsSky(new(skyX, skyY), axes), $"{name}: sky at ({skyX}, {skyY})");
+            Assert.False(NavballMath.IsSky(new(groundX, groundY), axes), $"{name}: ground at ({groundX}, {groundY})");
+        }
     }
 
     [Fact]
-    public void EyesSitHalfTheIpdEitherSideOfTheViewLineInSphereRadii()
+    public void LookingDownAtTheHandTheHorizonDipsBelowTheCentre()
     {
-        // Sphere 40 cm straight ahead of a level head: the quad faces the head, so the eyes are
-        // at x = -/+ 32 mm and z = 40 cm in its frame, divided by the 2.25 cm radius.
-        var hand = new RigidPose(Quaternion.Identity, new(0, 1.6f, -0.4f));
-        var view = CompassMath.Compute(RigidPose.Identity, Head, hand, Vector3.Zero);
-        Near(new(-0.032f / 0.0225f, 0, 0.4f / 0.0225f), view.Eyes.Left);
-        Near(new(0.032f / 0.0225f, 0, 0.4f / 0.0225f), view.Eyes.Right);
-        // A bigger sphere is the same eyes in fewer radii.
-        var big = CompassMath.Compute(RigidPose.Identity, Head, hand, Vector3.Zero,
-            stereo: CompassStereo.Default with { SphereRadius = 0.04f });
-        Near(view.Eyes.Left * 0.0225f / 0.04f, big.Eyes.Left);
-        // The eye offsets come from SteamVR (GetEyeToHeadTransform), in the head's frame.
-        var narrow = CompassMath.Compute(RigidPose.Identity, Head, hand, Vector3.Zero,
-            stereo: new(new(-0.029f, 0, 0), new(0.029f, 0, 0), 0.0225f));
-        Assert.InRange(narrow.Eyes.Right.X - narrow.Eyes.Left.X, 0.058f / 0.0225f - 1e-3f, 0.058f / 0.0225f + 1e-3f);
-    }
-
-    [Fact]
-    public void ProjectionGivesOppositeDisparityTowardAndAwayFromTheViewer()
-    {
-        var eyes = new CompassEyes(new(-1.42f, 0, 17.8f), new(1.42f, 0, 17.8f));
-        // The centre lies on the quad: both eyes see it at the same place.
-        Assert.Equal(0f, CompassMath.Disparity(Vector3.Zero, eyes), 5);
-        Near(new(0.3f, -0.2f, 0), new(CompassMath.Project(new(0.3f, -0.2f, 0), eyes.Left), 0));
-        // In front of the quad: crossed (left image point right of the right image point).
-        float toward = CompassMath.Disparity(new(0, 0, 0.86f), eyes);
-        float away = CompassMath.Disparity(new(0, 0, -0.86f), eyes);
-        Assert.True(toward > 0.1f, $"toward {toward}");
-        Assert.True(away < -0.1f, $"away {away}");
-        // About 2 * e * z / (d - z): 0.14 radii, a quarter of a centimetre of image shift on a 4.5 cm sphere.
-        Assert.InRange(toward, 0.13f, 0.15f);
-        // Nearer points also land farther from the centre (perspective).
-        Assert.True(CompassMath.Project(new(0.5f, 0, 0.8f), eyes.Left).X - CompassMath.Project(new(0, 0, 0.8f), eyes.Left).X > 0.5f);
-        // An eye at the sphere is held back, so nothing blows up.
-        Assert.True(float.IsFinite(CompassMath.Project(new(0, 0, 1), new(0, 0, 0.5f)).X));
+        // Seen from 30 degrees above, the near face shows mostly the upper (sky) half of the ball.
+        var axes = Seen(-30, 0);
+        var horizon = NavballMath.Horizon(axes);
+        Assert.NotNull(horizon);
+        Near(Vector3.Normalize(new(0, -0.5f, 0.866f)), horizon.Value.Near);
+        Assert.True(MathF.Abs(horizon.Value.Side.Z) < Tolerance && MathF.Abs(horizon.Value.Side.Y) < Tolerance, $"side {horizon.Value.Side}");
+        Near(Vector3.UnitY, horizon.Value.SkyRim);
+        Assert.True(NavballMath.IsSky(new(0, -0.4f), axes));
+        Assert.False(NavballMath.IsSky(new(0, -0.6f), axes));
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void RealForwardAtTheViewerStandsOutAndAwayFromThemSinksIn(bool facingBack)
+    [InlineData("identity", -30, 0, false, -90)]
+    [InlineData("roll90", -30, 90, false, 180)]
+    [InlineData("pitch45", 45, 0, true, -90)]
+    [InlineData("upside-down", -30, 180, false, 90)]
+    public void DownPoleAndEdgePointer(string name, float pitch, float roll, bool front, float pointerDegrees)
     {
-        // Looking along real forward at a hand ahead, forward points away from the eyes; turned
-        // round to look at a hand behind, real forward points at them. Only stereo tells these apart
-        // when the arrow is nearly end-on.
-        var head = facingBack
-            ? new RigidPose(Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), new(0, 1.6f, 0))
-            : Head;
-        var hand = new RigidPose(Quaternion.Identity, new(0.05f, 1.55f, facingBack ? 0.4f : -0.4f));
-        foreach (var flight in new[] { RigidPose.Identity, Combined() })
+        foreach (var flight in new[] { RigidPose.Identity, Roll(90), Pitch(45), Combined() })
         {
-            var view = CompassMath.Compute(flight, head, hand, Vector3.Zero);
-            float disparity = CompassMath.Disparity(view.Axes.Forward * 0.86f, view.Eyes);
-            if (facingBack) Assert.True(disparity > 0.1f, $"toward: {disparity}");
-            else Assert.True(disparity < -0.1f, $"away: {disparity}");
-            // Gravity lies almost in the quad plane here: hardly any depth.
-            Assert.InRange(CompassMath.Disparity(view.Axes.Down * 0.86f, view.Eyes), -0.06f, 0.06f);
+            var axes = Seen(pitch, roll, flight);
+            Assert.True(front == NavballMath.PoleOnFront(axes), $"{name}: pole on the {(front ? "near" : "far")} half, down {axes.Down}");
+            float difference = MathF.Abs(((NavballMath.PointerDegrees(axes) - pointerDegrees) % 360 + 540) % 360 - 180);
+            Assert.True(difference < 0.05f, $"{name}: pointer {NavballMath.PointerDegrees(axes)} degrees, expected {pointerDegrees}");
+            // The pole projects inside the disc where the pointer says.
+            var pole = NavballMath.PoleInImage(axes);
+            Assert.True(pole.Length() <= 1 + Tolerance);
+            Assert.True(Vector2.Dot(Vector2.Normalize(pole), NavballMath.PointerDirection(axes)) > 0.9999f);
         }
+    }
+
+    [Fact]
+    public void LookingStraightDownTheFaceIsAllSkyAndThePointerFallsBackToDown()
+    {
+        // Real up points straight at the eye: no horizon on the near face, the pole is right behind
+        // the centre and has no direction on the image.
+        var axes = Seen(-90, 0);
+        Assert.Null(NavballMath.Horizon(axes));
+        Assert.True(NavballMath.IsSky(Vector2.Zero, axes));
+        Assert.True(NavballMath.IsSky(new(0.7f, 0.7f), axes));
+        Assert.False(NavballMath.PoleOnFront(axes));
+        Assert.True(NavballMath.PoleInImage(axes).Length() < 1e-3f);
+        Assert.Equal(-90f, NavballMath.PointerDegrees(axes), 3);
     }
 
     [Fact]
