@@ -114,6 +114,9 @@ HMD の登録と `GetComponent` を観測し、`IVRDriverDirectModeComponent_009
 | `submit[forwarded,bypass,held,timed,matched,missed]` | レイヤーごとの経路の回数（`forwarded` は補正無効） |
 | `pathChanges` / `jumpMaxM` / `jumpMaxDeg` | 経路が変わった回数と、そのとき前のレイヤーから渡した HMD 姿勢が動いた量の最大値（1 フレーム分の頭部運動を含む） |
 | `headAgeMs` | SubmitLayer 時点の最新 HMD 更新の経過時間（steady clock） |
+| `skew: n/skewed/maxM/meanM` | `RunFrame` ごとに、50 ms 以内に更新された各機器について、HMD に確定した変換と機器自身の変換がその機器の位置をどれだけ離して置くか。機器は自分の更新時点の指令を受けるため、指令が変わってから機器が次に更新されるまで、頭部に対する体の位置が 1 ステップずれる |
+| `commandStepM` | 採用した指令が変わるたびの、物理頭部位置での移動量 |
+| `updates: hmd/other` | HMD とそれ以外の機器の姿勢更新数 |
 
 起動 10 秒後に SubmitLayer フックがなければ、`DriverAudit: ... render correction OFF` を一度記録します。このとき全レイヤーは飛行後の姿勢のまま転送されます。
 

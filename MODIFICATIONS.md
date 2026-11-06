@@ -252,6 +252,25 @@ on, over five runs. `frame_tests` covers the candidate scoring. All four
 native test suites pass. Not run on hardware; SlimeVR and rebocap should
 both be checked before the default changes.
 
+## 2026-11-06 — DriverAudit: tick skew and command step
+
+Affected files: `native/driver/Driver.cpp`, `native/driver/DriverPathTests.cpp`,
+`native/driver/README.md`.
+
+Each device takes the flight command current at its own pose update, so
+right after a command change the HMD and a tracker updated before it are
+flown by different steps, and the body sits one step away from the head
+until the tracker updates again. Under `driverAudit`, the `DriverAudit`
+line now samples that offset at every `RunFrame` (`skew`), the head
+displacement of each command change (`commandStepM`), and the HMD and
+other pose update counts (`updates`). Pose and frame output do not change.
+
+### Testing
+
+`driver_path_tests` checks the skew of a live device flown with the
+previous command, that stale devices are not sampled, and the command
+step. All four native test suites pass. Not run on hardware.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

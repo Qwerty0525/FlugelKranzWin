@@ -181,6 +181,35 @@ void auditTests(const vr::DriverPose_t& tracker,uint32_t device) {
         const double expected=std::sqrt((viaA[0]-viaB[0])*(viaA[0]-viaB[0])+(viaA[1]-viaB[1])*(viaA[1]-viaB[1])+(viaA[2]-viaB[2])*(viaA[2]-viaB[2]));
         const auto counted=auditNow();
         require(counted.virtualSteps==2 && std::abs(counted.virtualStepMax-expected)<1e-9);
+        // The a->b change is the first with a known head; identity->a came before it.
+        require(counted.commandSteps==1 && std::abs(counted.commandStepMax-expected)<1e-9);
+    }
+
+    // Tick skew: a live device still flown with the previous command sits one step away
+    // from where the HMD's transform puts it. Stale devices are not sampled.
+    {
+        double expectedSkew=0;
+        {
+            std::lock_guard<std::mutex> lock(appliedGate);
+            const double now=frameTimeMs();
+            lastUpdateMs.fill(0);
+            lastApplied[0]=b;lastUpdateMs[0]=now;
+            lastApplied[device]=a;lastUpdateMs[device]=now;
+            lastApplied[device+1]=a;lastUpdateMs[device+1]=now-100;
+            double viaHead[3],viaDevice[3];
+            flight::transformPoint(b,pendingPhysical[device].data(),viaHead);
+            flight::transformPoint(a,pendingPhysical[device].data(),viaDevice);
+            expectedSkew=std::sqrt((viaHead[0]-viaDevice[0])*(viaHead[0]-viaDevice[0])+(viaHead[1]-viaDevice[1])*(viaHead[1]-viaDevice[1])+(viaHead[2]-viaDevice[2])*(viaHead[2]-viaDevice[2]));
+        }
+        auditSample(frameTimeMs());
+        auto counted=auditNow();
+        require(counted.skewSamples==1 && counted.skewed==1 && std::abs(counted.skewMax-expectedSkew)<1e-9 && expectedSkew>0.5);
+        {std::lock_guard<std::mutex> lock(appliedGate);lastApplied[device]=b;}
+        auditSample(frameTimeMs());
+        counted=auditNow();
+        require(counted.skewSamples==2 && counted.skewed==1);
+        // Back to what the updates above committed.
+        {std::lock_guard<std::mutex> lock(appliedGate);lastApplied[0]=b;lastApplied[device]=a;lastApplied[device+1]=flight::Pose{};}
     }
 
     // A readback while this device's pose is being forwarded picks the previous transform.
@@ -203,6 +232,7 @@ void auditTests(const vr::DriverPose_t& tracker,uint32_t device) {
     const auto line=context.log.last("DriverAudit t=");
     require(line.find("refreshMiss=1 sampleMiss=1 ownerRevoked=1 commandInvalid=1")!=std::string::npos);
     require(line.find("readback: calls=1 window=1 pending=0 previous=1 ambiguous=0")!=std::string::npos);
+    require(line.find("skew: n=2 skewed=1")!=std::string::npos && line.find("commandStepM: n=1")!=std::string::npos);
     require(!context.log.contains("truncated"));
     require(auditNow().commandChanges==0 && auditNow().readbackCalls==0);
     auditTick(frameTimeMs());

@@ -117,7 +117,15 @@ struct Audit {
     std::array<uint64_t,PathCount> paths{};
     uint64_t pathChanges=0;double pathJumpMax=0,pathJumpDegMax=0;
     uint64_t headAges=0;double headAgeMax=0,headAgeSum=0; // ms, steady clock
+    // Sampled every RunFrame: for each other device updated in the last 50 ms, how far apart
+    // the HMD's committed transform and that device's put the device. Devices take the
+    // command current at their own update, so a command step between the two leaves the
+    // body offset from the head by that step until the device updates again.
+    uint64_t skewSamples=0,skewed=0;double skewMax=0,skewSum=0; // metres
+    uint64_t commandSteps=0;double commandStepMax=0,commandStepSum=0; // head displacement per change, metres
 };
+std::atomic<uint64_t> hmdUpdates{0},otherUpdates{0};
+std::array<double,64> lastUpdateMs{}; // protected by appliedGate: steady-clock ms of each device's last forward
 std::mutex auditGate;
 Audit audit; // protected by auditGate
 // Kept across the per-second resets.
@@ -469,8 +477,15 @@ void refresh() {
     const bool changed=std::memcmp(&before,&command,sizeof(command))!=0;
     if(!missed && !revoked && !invalid && !changed) return;
     const double changedAt=changed?frameTimeMs():0;
+    double step=-1;
+    if(changed && physicalHeadValid) {
+        double now[3],last[3];
+        flight::transformPoint(command,physicalHead,now);flight::transformPoint(before,physicalHead,last);
+        step=std::sqrt((now[0]-last[0])*(now[0]-last[0])+(now[1]-last[1])*(now[1]-last[1])+(now[2]-last[2])*(now[2]-last[2]));
+    }
     std::lock_guard<std::mutex> lock(auditGate);
     audit.refreshMiss+=missed;audit.ownerRevoked+=revoked;audit.commandInvalid+=invalid;
+    if(step>=0) {audit.commandSteps++;audit.commandStepSum+=step;audit.commandStepMax=std::max(audit.commandStepMax,step);}
     if(changed) {
         audit.commandChanges++;
         if(lastCommandChange>0) audit.commandInterval[intervalBucket(changedAt-lastCommandChange)]++;
@@ -515,6 +530,7 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             }
         }
         if(device==0) lastHeadUpdate.store(received);
+        if(driverAudit) (device==0?hmdUpdates:otherUpdates).fetch_add(1,std::memory_order_relaxed);
         if(driverAudit && (sampleMissed || virtualStep>=0)) {
             std::lock_guard<std::mutex> lock(auditGate);
             audit.sampleMiss+=sampleMissed;
@@ -535,6 +551,7 @@ void updated(int index,void* host,uint32_t device,const vr::DriverPose_t& input,
             pendingApplied[device]=transform;
             pendingPhysical[device]={body.px,body.py,body.pz};
             forwarding[device]=true;
+            lastUpdateMs[device]=received;
             generation=++startedGeneration[device];
             recentForwards[device][generation%forwardRing]={generation,transform,body};
             forwardsInFlight[device]++;
@@ -602,6 +619,32 @@ void loadSettings() {
     vr::VRDriverLog()->Log(message);
 }
 
+// Called from every RunFrame after `gate` is released (vrserver's frame rate).
+void auditSample(double now) {
+    if(!driverAudit) return;
+    std::array<flight::Pose,64> applied;
+    std::array<std::array<double,3>,64> body;
+    std::array<double,64> updatedAt;
+    {
+        std::lock_guard<std::mutex> lock(appliedGate);
+        applied=lastApplied;body=pendingPhysical;updatedAt=lastUpdateMs;
+    }
+    if(updatedAt[0]<=0 || now-updatedAt[0]>50) return;
+    uint64_t samples=0,skewed=0;double skewMax=0,skewSum=0;
+    for(size_t device=1;device<applied.size();device++) {
+        if(updatedAt[device]<=0 || now-updatedAt[device]>50 || anchoredDevices[device].load()==2) continue;
+        double viaHead[3],viaDevice[3];
+        flight::transformPoint(applied[0],body[device].data(),viaHead);
+        flight::transformPoint(applied[device],body[device].data(),viaDevice);
+        const double skew=std::sqrt((viaHead[0]-viaDevice[0])*(viaHead[0]-viaDevice[0])
+            +(viaHead[1]-viaDevice[1])*(viaHead[1]-viaDevice[1])+(viaHead[2]-viaDevice[2])*(viaHead[2]-viaDevice[2]));
+        samples++;if(skew>1e-6) skewed++;
+        skewSum+=skew;skewMax=std::max(skewMax,skew);
+    }
+    if(!samples) return;
+    std::lock_guard<std::mutex> lock(auditGate);
+    audit.skewSamples+=samples;audit.skewed+=skewed;audit.skewSum+=skewSum;audit.skewMax=std::max(audit.skewMax,skewMax);
+}
 // Called from RunFrame after `gate` is released. Logs at most once per second.
 void auditTick(double now) {
     if(!driverAudit) return;
@@ -627,14 +670,15 @@ void auditTick(double now) {
             :"DriverAudit: no HMD GetComponent observer after 10 s (HMD registered before this driver?); render correction OFF");
     }
     const auto& a=snapshot;
-    char message[1024];
+    char message[1536];
     const int length=std::snprintf(message,sizeof(message),
         "DriverAudit t=%.0f ipc: refreshMiss=%llu sampleMiss=%llu ownerRevoked=%llu commandInvalid=%llu "
         "command: changes=%llu intervalMs[<5,<10,<15,<20,<30,<50,<100,>=100]=[%llu %llu %llu %llu %llu %llu %llu %llu] "
         "virtualStepM: n=%llu max=%.4f mean=%.4f "
         "readback: calls=%llu window=%llu pending=%llu previous=%llu ambiguous=%llu residualMaxM=%.4f overflow=%llu reorderedCommits=%llu "
         "submit[forwarded,bypass,held,timed,matched,missed,fallback]=[%llu %llu %llu %llu %llu %llu %llu] pathChanges=%llu jumpMaxM=%.4f jumpMaxDeg=%.3f "
-        "headAgeMs: n=%llu max=%.2f mean=%.2f",
+        "headAgeMs: n=%llu max=%.2f mean=%.2f "
+        "skew: n=%llu skewed=%llu maxM=%.4f meanM=%.4f commandStepM: n=%llu max=%.4f mean=%.4f updates: hmd=%llu other=%llu",
         now,
         static_cast<unsigned long long>(a.refreshMiss),static_cast<unsigned long long>(a.sampleMiss),
         static_cast<unsigned long long>(a.ownerRevoked),static_cast<unsigned long long>(a.commandInvalid),
@@ -653,7 +697,10 @@ void auditTick(double now) {
         static_cast<unsigned long long>(a.paths[PathMatched]),static_cast<unsigned long long>(a.paths[PathMissed]),
         static_cast<unsigned long long>(a.paths[PathFallback]),
         static_cast<unsigned long long>(a.pathChanges),a.pathJumpMax,a.pathJumpDegMax,
-        static_cast<unsigned long long>(a.headAges),a.headAgeMax,a.headAges?a.headAgeSum/a.headAges:0.0);
+        static_cast<unsigned long long>(a.headAges),a.headAgeMax,a.headAges?a.headAgeSum/a.headAges:0.0,
+        static_cast<unsigned long long>(a.skewSamples),static_cast<unsigned long long>(a.skewed),a.skewMax,a.skewSamples?a.skewSum/a.skewSamples:0.0,
+        static_cast<unsigned long long>(a.commandSteps),a.commandStepMax,a.commandSteps?a.commandStepSum/a.commandSteps:0.0,
+        static_cast<unsigned long long>(hmdUpdates.exchange(0)),static_cast<unsigned long long>(otherUpdates.exchange(0)));
     vr::VRDriverLog()->Log(message);
     if(length<0 || length>=static_cast<int>(sizeof(message))) vr::VRDriverLog()->Log("DriverAudit: previous line truncated");
 }
@@ -752,7 +799,7 @@ public:
             lastApplied.fill(flight::Pose{});pendingApplied.fill(flight::Pose{});
             pendingPhysical.fill({});forwarding.fill(false);
             for(auto& forwards:recentForwards) forwards.fill(Forward{});
-            startedGeneration.fill(0);forwardsInFlight.fill(0);reordered.fill(false);
+            startedGeneration.fill(0);forwardsInFlight.fill(0);reordered.fill(false);lastUpdateMs.fill(0);
             for(auto& committed:committedGeneration) committed.store(0);
         }
         for(auto& site:physicalCallSites) site.store(nullptr);
@@ -769,7 +816,9 @@ public:
     const char* const* GetInterfaceVersions() override {return vr::k_InterfaceVersions;}
     void RunFrame() override {
         {std::lock_guard<std::mutex> lock(gate);refresh();}
-        auditTick(frameTimeMs());
+        const double now=frameTimeMs();
+        auditSample(now);
+        auditTick(now);
     }
     bool ShouldBlockStandbyMode() override {return false;}
     void EnterStandby() override {}
