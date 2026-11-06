@@ -1,4 +1,6 @@
-[![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-8b0000)](README.md) [![English](https://img.shields.io/badge/lang-English-007ec6)](README.en.md)
+<!-- Language switch: one badge per line (they render side by side). Keep the same list in every README*.md; the current language uses the darker color. -->
+[![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-8b0000)](README.md)
+[![English](https://img.shields.io/badge/lang-English-007ec6)](README.en.md)
 
 # FlugelKranzWin
 
