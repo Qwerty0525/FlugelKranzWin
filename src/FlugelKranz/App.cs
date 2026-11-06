@@ -84,7 +84,8 @@ public class App : Application
             var window = new Window
             {
                 Title = "FlugelKranz", Width = 1100, Height = 650, MinWidth = 420, MinHeight = 520,
-                Content = new MainView(vm)
+                Content = new MainView(vm),
+                Icon = LoadIcon()
             };
             bool canClose = false, closing = false;
             window.Closing += async (_, e) =>
@@ -100,5 +101,18 @@ public class App : Application
             desktop.MainWindow = window;
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    public const string IconResource = "FlugelKranz.Assets.FlugelKranz.ico";
+
+    /// <summary>The title-bar / taskbar icon (the same multi-size .ico the exe carries). Null if it cannot load.</summary>
+    internal static WindowIcon? LoadIcon()
+    {
+        try
+        {
+            using var stream = typeof(App).Assembly.GetManifestResourceStream(IconResource);
+            return stream is null ? null : new WindowIcon(stream);
+        }
+        catch (Exception) { return null; }
     }
 }

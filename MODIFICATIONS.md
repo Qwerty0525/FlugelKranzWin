@@ -651,6 +651,31 @@ terminal) and the AllocConsole fallback could not be exercised from the
 automated shell. `--diagnose` and the GUI were not started here, since
 either can start SteamVR; they use the same console path as `--help`.
 
+## 2026-11-06 — App icon
+
+Affected files: the new `src/FlugelKranz/Assets/FlugelKranz.ico`,
+`src/FlugelKranz/FlugelKranz.csproj`, `src/FlugelKranz/App.cs` and the new
+`tests/FlugelKranz.Tests/AppIconTests.cs`.
+
+The app had no icon (upstream has none either). This build adds original
+artwork made for it: a deep-blue square (a 120° gradient from `#24497f` to
+`#122441`, rim `#5d8cc4`), a softly glowing white ring, and inside it a
+downward triangle in sky blue `#a1caea` with a soft glow, the colour of the
+FLIGHT/ASSIST VRChat group and a nod to the gravity compass. Corners follow
+the Windows 11 icon grid (2 px exterior / 1 px interior radius at 48 × 48).
+Sizes 32 px and below use a thicker ring and a larger triangle so they stay
+legible on light and dark taskbars. The `.ico` holds PNG entries at 16, 20,
+24, 32, 40, 48, 64 and 256 px. It is the exe's `ApplicationIcon` (Explorer,
+shortcuts, taskbar) and, as an embedded resource, the Avalonia window icon
+(title bar, Alt+Tab). If the resource cannot be loaded, the window simply has
+no icon.
+
+### Testing
+
+`AppIconTests` checks that the embedded icon is a valid ICO with the 16, 24,
+32, 48 and 256 px entries Windows asks for at minimum. The published exe was
+checked to carry the icon resource.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

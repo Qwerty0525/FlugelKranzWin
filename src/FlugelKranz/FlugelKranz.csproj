@@ -6,6 +6,7 @@
     <RootNamespace>FlugelKranz</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>Assets/FlugelKranz.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,6 +16,7 @@
     <None Include="../../MODIFICATIONS.md" Link="MODIFICATIONS.md" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../THIRD-PARTY-NOTICES-dotnet.txt" Link="THIRD-PARTY-NOTICES-dotnet.txt" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../THIRD-PARTY-NOTICES-SkiaSharp.txt" Link="THIRD-PARTY-NOTICES-SkiaSharp.txt" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets/FlugelKranz.ico" LogicalName="FlugelKranz.Assets.FlugelKranz.ico" />
     <EmbeddedResource Include="Localization/Languages/*.json" WithCulture="false"
       LogicalName="FlugelKranz.Localization.Languages.%(Filename)%(Extension)" />
     <ProjectReference Include="..\FlugelKranz.OpenXR\FlugelKranz.OpenXR.csproj" />
