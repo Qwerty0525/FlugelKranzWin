@@ -109,12 +109,15 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             ClipToBounds = true
         }.Classes("settings-surface")
             .Width(model, x => x.SettingsPanelWidth)
-            .Child(new ScrollViewer
-            {
-                AllowAutoHide = false,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Padding = new Thickness(0, 0, 12, 0)
-            }.Content(SettingsPanel(model)));
+            // The header (title and Close) stays at the top; only the settings below it scroll.
+            .Child(new DockPanel().Children(
+                Docked(SettingsHeader(model), Dock.Top),
+                new ScrollViewer
+                {
+                    AllowAutoHide = false,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Padding = new Thickness(0, 0, 12, 0)
+                }.Content(SettingsPanel(model))));
 
         Grid.SetColumn(panel, 1);
         root.Children.Add(main);
@@ -133,17 +136,19 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
         return root;
     }
 
+    /// <summary>
+    /// Title and Close, outside the scroll area. No language selector here: the one on the main
+    /// surface stays visible beside the panel (except at 720 px and narrower, where the panel is full width).
+    /// </summary>
+    private static Control SettingsHeader(MainViewModel model) =>
+        new DockPanel { Name = "SettingsHeader", Margin = new Thickness(0, 0, 12, 10) }.Children(
+            Docked(Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.close")
+                .Command(model, x => x.ToggleSettingsCommand), Dock.Right),
+            Localize(model.Strings, new TextBlock(), (t, s) => t.Text = s, "settings.title").FontSize(24).FontWeight(FontWeight.SemiBold)
+                .VerticalAlignment(VerticalAlignment.Center));
+
     private static Control SettingsPanel(MainViewModel model) =>
         new StackPanel().Spacing(10).Children(
-            new DockPanel().Children(
-                Localize(model.Strings, new TextBlock(), (t, s) => t.Text = s, "settings.title").FontSize(24).FontWeight(FontWeight.SemiBold)
-                    .VerticalAlignment(VerticalAlignment.Center),
-                new StackPanel().Orientation(Orientation.Horizontal).Spacing(12)
-                    .HorizontalAlignment(HorizontalAlignment.Right).Children(
-                        LanguageSelector(model),
-                        Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.close")
-                            .Command(model, x => x.ToggleSettingsCommand))
-            ),
             new TextBlock().Text(model, x => x.Status).TextWrapping(TextWrapping.Wrap),
             Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.openBindings")
                 .IsVisible(model, x => x.SupportsSteamVrBindings)
@@ -435,6 +440,12 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
         };
         Sync();
         return panel;
+    }
+
+    private static T Docked<T>(T control, Dock dock) where T : Control
+    {
+        DockPanel.SetDock(control, dock);
+        return control;
     }
 
     private static Separator Divider() => new() { Margin = new Thickness(0, 8) };

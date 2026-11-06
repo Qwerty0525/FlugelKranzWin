@@ -125,8 +125,8 @@ public class LocalizationTests
 
             var selectors = window.GetVisualDescendants().OfType<ToggleButton>()
                 .Where(b => b.Classes.Contains("language-option")).ToArray();
-            // One selector on the main surface and one in the settings header.
-            Assert.Equal(2 * UiStrings.Languages.Count, selectors.Length);
+            // Only the selector on the main surface; the settings header has none.
+            Assert.Equal(UiStrings.Languages.Count, selectors.Length);
             Assert.All(selectors.Where(b => Equals(b.Tag, "ja")), b => Assert.True(b.IsChecked));
             var english = selectors.First(b => Equals(b.Content, "ENG"));
             english.Command!.Execute(english.CommandParameter);

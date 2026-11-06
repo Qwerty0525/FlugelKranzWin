@@ -282,7 +282,8 @@ Affected files: `src/FlugelKranz/Views/MainView.cs`,
 `tests/FlugelKranz.Tests/LocalizationTests.cs`.
 
 The desktop app's text can now be shown in English. `ENG` / `JPN` buttons sit
-in the top-right corner of the main screen and in the settings header; a click
+in the top-right corner of the main screen (the settings header had a second
+set until 2026-11-06; see "Settings panel: fixed header"); a click
 switches every label, button, tooltip and status line immediately, without a
 restart. The choice is saved as `"language": "en"` or `"ja"` at the root of
 `config.json`. A missing or unknown value means Japanese, so existing configs
@@ -945,6 +946,31 @@ the down side only and inside the texture. `RenderPreviewImagesWhenAsked`
 writes the four views, lime / amber, mocks of the flown view for flight roll
 90°, pitch 45° and upside down, and `timing.txt`. The SteamVR self-test now
 submits navball images.
+
+## 2026-11-06 — Settings panel: fixed header, one language selector
+
+Affected files: `src/FlugelKranz/Views/MainView.cs`,
+`tests/FlugelKranz.Tests/LocalizationTests.cs` and the new
+`tests/FlugelKranz.Tests/SettingsPanelLayoutTests.cs`.
+
+The settings title and **Close** were the first row of the scrolling
+content, so they scrolled away. They are now a header docked above the
+scroll area: the settings scroll underneath and Close stays in place. The
+settings header no longer has its own ENG / JPN selector, which showed twice
+while the panel was open; the one at the top right of the main screen stays
+and switches the language with or without the panel. With the panel open it
+stays fully visible beside it at window widths above 720 px; at 720 px and
+narrower the panel takes the whole window (as before) and covers it, so the
+panel has to be closed to switch the language there.
+
+### Testing
+
+`SettingsPanelLayoutTests` (headless, through the session dispatcher like
+`LocalizationTests`): Close and the title are outside the scroll viewer and
+above it, keep their place after scrolling to the bottom, and still close
+the panel; there is one selector, outside the panel, uncovered and working at
+the default 1100 px, uncovered at 721–1000 px and covered at 720 and 600 px.
+`LocalizationTests` now expects one selector.
 
 ## 2026-10-25 — Redistribution notices
 
