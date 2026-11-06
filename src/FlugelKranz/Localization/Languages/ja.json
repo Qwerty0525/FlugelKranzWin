@@ -90,6 +90,7 @@
     "settings.diagnostics.when": "問題が起きたセッションの直後に押してください。先に SteamVR を終了し、このウィンドウは開いたまま、SteamVR を再起動する前に保存します（SteamVR は起動時にログを上書きし、FlugelKranz を開き直すと SteamVR が起動することがあります）。",
     "settings.diagnostics.collect": "診断ログを保存…",
     "settings.diagnostics.planHeader": "次の {0} 個のファイルと summary.txt を 1 つの zip にまとめます:",
+    "settings.diagnostics.steamVrRunning": "⚠ SteamVR がまだ起動しています。セッション全体のログを残すには、先に SteamVR を終了し（このウィンドウは開いたまま）、もう一度「診断ログを保存…」を押してください。このまま保存することもできます。",
     "settings.diagnostics.empty": "（ログファイルが見つかりません）",
     "settings.diagnostics.redaction": "保存前に PC 名、Windows のユーザー名、ユーザーフォルダーのパスを置き換えます。それ以外の内容（デバイスのシリアル番号、ネットワークアドレス、Steam アカウント名など）はそのまま残るため、公開する前に zip の中身を確認してください。元のファイルは読み取るだけで、どこにも送信しません。",
     "settings.diagnostics.save": "zip を保存",

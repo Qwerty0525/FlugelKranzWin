@@ -14,6 +14,8 @@ public sealed partial class MainViewModel
     private IReadOnlyList<DiagnosticFile> diagnosticPlan = [];
     private (string Key, object?[] Args)? diagnosticMessage;
     [ObservableProperty] private bool isDiagnosticPlanVisible;
+    /// <summary>SteamVR was running when the list was made; saving is still allowed.</summary>
+    [ObservableProperty] private bool isSteamVrRunningForDiagnostics;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanUseDiagnostics))]
     private bool isSavingDiagnostics;
@@ -24,6 +26,8 @@ public sealed partial class MainViewModel
 
     /// <summary>Folders to read from; tests replace it.</summary>
     internal Func<DiagnosticSources> DiagnosticSourcesFactory { get; set; } = null!;
+    /// <summary>Whether vrserver.exe runs; tests replace it.</summary>
+    internal Func<bool> SteamVrRunningProbe { get; set; } = DiagnosticLogCollector.IsSteamVrRunning;
     /// <summary>Archive location for a collection time; tests replace it.</summary>
     internal Func<DateTime, string> DiagnosticArchivePathFactory { get; set; } = DiagnosticLogCollector.DefaultArchivePath;
 
@@ -56,6 +60,10 @@ public sealed partial class MainViewModel
             SetDiagnosticMessage("settings.diagnostics.failed", exception.Message);
             return;
         }
+        bool running;
+        try { running = SteamVrRunningProbe(); }
+        catch (Exception) { running = false; }
+        IsSteamVrRunningForDiagnostics = running;
         OnPropertyChanged(nameof(DiagnosticFileList));
         OnPropertyChanged(nameof(DiagnosticPlanHeader));
         SetDiagnosticMessage(null);

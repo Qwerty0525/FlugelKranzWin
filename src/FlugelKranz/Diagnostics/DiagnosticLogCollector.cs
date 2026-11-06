@@ -154,6 +154,17 @@ public static class DiagnosticLogCollector
         File.Move(temporary, zipPath, true);
     }
 
+    /// <summary>
+    /// True while vrserver.exe runs. SteamVR keeps writing (and on exit finishes) vrserver.txt,
+    /// so a zip taken now misses the end of the session.
+    /// </summary>
+    public static bool IsSteamVrRunning()
+    {
+        var processes = System.Diagnostics.Process.GetProcessesByName("vrserver");
+        foreach (var process in processes) process.Dispose();
+        return processes.Length > 0;
+    }
+
     public static string DefaultArchivePath(DateTime collectedAt) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "FlugelKranz Logs",
         $"FlugelKranz-logs-{collectedAt:yyyyMMdd-HHmmss}.zip");

@@ -87,6 +87,7 @@
     "settings.diagnostics.when": "Press this right after the session with the problem: close SteamVR first, keep this window open, and save before starting SteamVR again (SteamVR overwrites its log on start, and reopening FlugelKranz can start SteamVR).",
     "settings.diagnostics.collect": "Save diagnostic logs…",
     "settings.diagnostics.planHeader": "These {0} files and a summary.txt go into one zip:",
+    "settings.diagnostics.steamVrRunning": "⚠ SteamVR is still running. To capture the whole session, close SteamVR first (keep this window open) and press Save diagnostic logs… again. You can also save now.",
     "settings.diagnostics.empty": "(no log files found)",
     "settings.diagnostics.redaction": "Before saving, the PC name, the Windows user name and user-folder paths are replaced. Other content (for example device serial numbers, network addresses or a Steam account name) stays as it is; look through the zip before posting it publicly. The source files are only read, and nothing is sent anywhere.",
     "settings.diagnostics.save": "Save zip",

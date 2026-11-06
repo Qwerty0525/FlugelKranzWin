@@ -301,6 +301,10 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             }
                 .IsVisible(model, x => x.IsDiagnosticPlanVisible)
                 .Child(new StackPanel().Spacing(8).Children(
+                    Localize(model.Strings, new TextBlock { Name = "DiagnosticSteamVrRunning" }, (t, s) => t.Text = s,
+                            "settings.diagnostics.steamVrRunning")
+                        .TextWrapping(TextWrapping.Wrap).FontWeight(FontWeight.SemiBold)
+                        .IsVisible(model, x => x.IsSteamVrRunningForDiagnostics),
                     new TextBlock().Text(model, x => x.DiagnosticPlanHeader).FontWeight(FontWeight.SemiBold)
                         .TextWrapping(TextWrapping.Wrap),
                     new SelectableTextBlock { Name = "DiagnosticFileList", FontFamily = new FontFamily("Consolas, Menlo, monospace"), FontSize = 12 }

@@ -135,6 +135,8 @@ public class DiagnosticLogTests
             Directory.CreateDirectory(sources.SteamLogs);
             File.WriteAllText(Path.Combine(sources.SteamLogs, "vrserver.txt"), "Active HMD set to x\n");
             vm.DiagnosticSourcesFactory = () => sources;
+            bool steamVrRunning = true;
+            vm.SteamVrRunningProbe = () => steamVrRunning;
             vm.DiagnosticArchivePathFactory = _ => Path.Combine(root, "out", "logs.zip");
             vm.Language = "en";
             await vm.ToggleSettingsCommand.ExecuteAsync(null);
@@ -146,6 +148,17 @@ public class DiagnosticLogTests
             prepare.Command!.Execute(null);
             window.UpdateLayout();
             Assert.True(vm.IsDiagnosticPlanVisible);
+            var warning = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "DiagnosticSteamVrRunning");
+            Assert.True(warning.IsEffectivelyVisible);
+            Assert.StartsWith("⚠ SteamVR is still running.", warning.Text);
+            steamVrRunning = false;
+            prepare.Command!.Execute(null);
+            window.UpdateLayout();
+            Assert.False(warning.IsEffectivelyVisible);
+            steamVrRunning = true;
+            prepare.Command!.Execute(null);
+            window.UpdateLayout();
+            Assert.True(warning.IsEffectivelyVisible, "saving stays possible while SteamVR runs");
             var list = window.GetVisualDescendants().OfType<SelectableTextBlock>().Single(t => t.Name == "DiagnosticFileList");
             Assert.True(list.IsEffectivelyVisible);
             Assert.StartsWith("steamvr" + Path.DirectorySeparatorChar + "vrserver.txt   ", list.Text);

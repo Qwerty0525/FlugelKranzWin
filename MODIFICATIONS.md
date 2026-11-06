@@ -507,6 +507,27 @@ within 100 ms without writing. `OpenVrFlightRuntimeTests` checks the same
 rate limit on reads and that `Apply` still refuses a moved origin. Not yet
 checked against a real vrclient log.
 
+## 2026-11-06 — Log-save warning while SteamVR runs
+
+Affected files: `src/FlugelKranz/Diagnostics/DiagnosticLogCollector.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Diagnostics.cs`,
+`src/FlugelKranz/Views/MainView.cs`, both language tables and
+`tests/FlugelKranz.Tests/DiagnosticLogTests.cs`.
+
+When **Save diagnostic logs…** is pressed while `vrserver.exe` is running,
+the file list now opens with a warning: SteamVR is still running, and
+closing it first (keeping the app open) and pressing the button again
+captures the whole session. **Save zip** stays available. The check runs
+each time the list is made, so pressing the button again after closing
+SteamVR clears the warning and refreshes the file sizes. Only the process
+list is read.
+
+### Testing
+
+The headless settings test now shows the warning with SteamVR reported
+running, hides it after a refresh with SteamVR closed, and still saves the
+zip while it is shown.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
