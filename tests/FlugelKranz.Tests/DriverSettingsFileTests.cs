@@ -119,6 +119,52 @@ public class DriverSettingsFileTests
         finally { Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public void ReadsWhatTheRunningDriverLoaded()
+    {
+        string root = Directory.CreateTempSubdirectory("fk-flags-").FullName;
+        try
+        {
+            string log = Path.Combine(root, "vrserver.txt");
+            Assert.Null(DriverSettingsFile.ReadLoadedDriverAudit(log));
+            File.WriteAllText(log, "Fri Nov 06 2026 19:27:57.301 [Info] - flugelkranz: FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1 driverAudit=0 fallbackFramePose=0 readbackGenerations=0\n");
+            Assert.False(DriverSettingsFile.ReadLoadedDriverAudit(log));
+            File.AppendAllText(log, "later: FlugelKranz flags: observeFrames=1 driverAudit=1 fallbackFramePose=0\n");
+            Assert.True(DriverSettingsFile.ReadLoadedDriverAudit(log), "the last load wins");
+            File.WriteAllText(log, "no flags here\n");
+            Assert.Null(DriverSettingsFile.ReadLoadedDriverAudit(log));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task ShowsWhenTheSettingWaitsForASteamVrRestart()
+    {
+        string root = Directory.CreateTempSubdirectory("fk-pending-").FullName;
+        try
+        {
+            string path = Path.Combine(root, "default.vrsettings");
+            File.WriteAllText(path, "{ \"driver_flugelkranz\": { \"driverAudit\": true } }");
+            await using var vm = new MainViewModel("/nonexistent/flugelkranz-test.so", Path.Combine(root, "config.json"));
+            vm.Language = "en";
+            bool? loaded = false;
+            vm.LoadedDriverAuditProbe = () => loaded;
+            vm.LoadDriverSettings(path, null);
+            vm.RefreshLoadedDriverAudit();
+            Assert.EndsWith("The running SteamVR loaded the driver with detailed diagnostics off. This setting takes effect after SteamVR is restarted.",
+                vm.DetailedDiagnosticsStatus);
+            loaded = true;
+            vm.RefreshLoadedDriverAudit();
+            Assert.EndsWith("Driver in the running SteamVR: detailed diagnostics on (same as this setting)", vm.DetailedDiagnosticsStatus);
+            vm.DetailedDiagnostics = false;
+            Assert.EndsWith("This setting takes effect after SteamVR is restarted.", vm.DetailedDiagnosticsStatus);
+            loaded = null; // SteamVR closed
+            vm.RefreshLoadedDriverAudit();
+            Assert.DoesNotContain("running SteamVR", vm.DetailedDiagnosticsStatus);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static string RepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)

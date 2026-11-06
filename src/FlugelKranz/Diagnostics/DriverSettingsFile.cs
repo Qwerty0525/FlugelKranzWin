@@ -58,6 +58,32 @@ public static class DriverSettingsFile
         return node is JsonValue value && value.TryGetValue(out bool flag) ? flag : null;
     }
 
+    /// <summary>
+    /// The driverAudit value the running driver loaded: the last "FlugelKranz flags:" line the driver
+    /// writes to vrserver.txt when SteamVR loads it. Null when the log or the line is missing.
+    /// Read with sharing, since SteamVR keeps the file open.
+    /// </summary>
+    public static bool? ReadLoadedDriverAudit(string vrserverLog)
+    {
+        try
+        {
+            if (!File.Exists(vrserverLog)) return null;
+            using var stream = new FileStream(vrserverLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            bool? loaded = null;
+            while (reader.ReadLine() is { } line)
+            {
+                int flags = line.IndexOf("FlugelKranz flags:", StringComparison.Ordinal);
+                if (flags < 0) continue;
+                int key = line.IndexOf("driverAudit=", flags, StringComparison.Ordinal);
+                if (key >= 0 && key + 12 < line.Length) loaded = line[key + 12] == '1';
+            }
+            return loaded;
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
     /// <summary>Sets the flag and keeps every other key; written through a temporary file.</summary>
     public static void WriteDriverAudit(string path, bool enabled)
     {

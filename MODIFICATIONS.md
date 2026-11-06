@@ -735,6 +735,31 @@ by the next build.
 Built with `-TestBuild` into `artifacts/windows-x64`; the deployed file had
 `driverAudit: true` and every other key unchanged (see the session report).
 
+## 2026-11-06 — Detailed diagnostics: show what the running driver loaded
+
+Affected files: `src/FlugelKranz/Diagnostics/DriverSettingsFile.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Diagnostics.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.cs`, both language tables and
+`tests/FlugelKranz.Tests/DriverSettingsFileTests.cs`.
+
+The driver reads `driverAudit` only when SteamVR loads it and logs a
+`FlugelKranz flags: … driverAudit=0|1` line in `vrserver.txt`. While
+`vrserver.exe` runs, the **Detailed diagnostics** status now reads the last
+such line and adds either "Driver in the running SteamVR: detailed
+diagnostics on/off (same as this setting)" or, when the setting differs (or
+a `steamvr.vrsettings` override decides it), that the running driver loaded
+the other value and the setting takes effect after SteamVR is restarted. It
+is refreshed when the app starts, when the settings panel opens and when the
+checkbox changes. With SteamVR closed nothing is added. The log is opened
+read-only with sharing.
+
+### Testing
+
+`DriverSettingsFileTests`: the flags line parser (missing log, off, the last
+load wins, no line) and the status in the view model for pending, matching,
+changed again and SteamVR closed. 249 C# tests, 246 pass (the 3 known
+`[AvaloniaFact]` discovery errors).
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

@@ -359,6 +359,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             return;
 
         IsSettingsOpen = !IsSettingsOpen;
+        if (IsSettingsOpen && OperatingSystem.IsWindows()) RefreshLoadedDriverAudit();
         settingsAnimation?.Cancel();
         settingsAnimation?.Dispose();
         settingsAnimation = new CancellationTokenSource();

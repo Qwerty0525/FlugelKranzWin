@@ -112,6 +112,10 @@ public sealed partial class MainViewModel
 
     private string? driverSettingsPath;
     private bool? driverAuditOverride;
+    /// <summary>What the running SteamVR's driver loaded; null when SteamVR is not running or the log has no flags line.</summary>
+    private bool? loadedDriverAudit;
+    /// <summary>The value the running driver loaded, or null; tests replace it.</summary>
+    internal Func<bool?> LoadedDriverAuditProbe { get; set; } = null!;
     private bool loadingDriverSettings;
     private (string Key, object?[] Args) driverSettingsMessage = ("settings.detailedDiagnostics.notFound", []);
     [ObservableProperty] private bool detailedDiagnostics;
@@ -123,14 +127,40 @@ public sealed partial class MainViewModel
         get
         {
             string text = Strings.Format(driverSettingsMessage.Key, driverSettingsMessage.Args);
-            return driverAuditOverride is { } value
-                ? text + "\n" + Strings.Format("settings.detailedDiagnostics.override", value ? "true" : "false")
-                : text;
+            if (driverAuditOverride is { } value)
+                text += "\n" + Strings.Format("settings.detailedDiagnostics.override", value ? "true" : "false");
+            if (loadedDriverAudit is { } loaded && HasDriverSettings)
+            {
+                string state = Strings[loaded ? "settings.detailedDiagnostics.on" : "settings.detailedDiagnostics.off"];
+                bool effective = driverAuditOverride ?? DetailedDiagnostics;
+                text += "\n" + Strings.Format(loaded == effective
+                    ? "settings.detailedDiagnostics.running"
+                    : "settings.detailedDiagnostics.pending", state);
+            }
+            return text;
         }
+    }
+
+    /// <summary>Re-reads what the running driver loaded (cheap: one log scan, only while SteamVR runs).</summary>
+    internal void RefreshLoadedDriverAudit()
+    {
+        try { loadedDriverAudit = LoadedDriverAuditProbe?.Invoke(); }
+        catch (Exception) { loadedDriverAudit = null; }
+        OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+    }
+
+    private bool? ProbeLoadedDriverAuditForThisPc()
+    {
+        bool running;
+        try { running = SteamVrRunningProbe(); }
+        catch (Exception) { return null; }
+        return running ? DriverSettingsFile.ReadLoadedDriverAudit(Path.Combine(DiagnosticSourcesFactory().SteamLogs, "vrserver.txt")) : null;
     }
 
     private void LoadDriverSettingsForThisPc()
     {
+        LoadedDriverAuditProbe = ProbeLoadedDriverAuditForThisPc;
+        loadedDriverAudit = LoadedDriverAuditProbe();
         var sources = DiagnosticSourcesFactory();
         bool? userOverride = null;
         try { userOverride = DriverSettingsFile.ReadDriverAudit(Path.Combine(sources.SteamPath, "config", "steamvr.vrsettings")); }
