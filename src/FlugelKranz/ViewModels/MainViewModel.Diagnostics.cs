@@ -5,7 +5,10 @@ using System.Globalization;
 
 namespace FlugelKranz.ViewModels;
 
-/// <summary>"Save diagnostic logs": list what would go in, then write the redacted zip on confirmation.</summary>
+/// <summary>
+/// "Save diagnostic logs": list what would go in, then write the redacted zip on confirmation.
+/// "Detailed diagnostics": the driver's driverAudit flag, applied on the next SteamVR start.
+/// </summary>
 public sealed partial class MainViewModel
 {
     private IReadOnlyList<DiagnosticFile> diagnosticPlan = [];
@@ -98,6 +101,76 @@ public sealed partial class MainViewModel
         }
         catch (Exception exception) { SetDiagnosticMessage("settings.diagnostics.failed", exception.Message); }
     }
+
+    private string? driverSettingsPath;
+    private bool? driverAuditOverride;
+    private bool loadingDriverSettings;
+    private (string Key, object?[] Args) driverSettingsMessage = ("settings.detailedDiagnostics.notFound", []);
+    [ObservableProperty] private bool detailedDiagnostics;
+
+    public bool HasDriverSettings => driverSettingsPath is not null;
+
+    public string DetailedDiagnosticsStatus
+    {
+        get
+        {
+            string text = Strings.Format(driverSettingsMessage.Key, driverSettingsMessage.Args);
+            return driverAuditOverride is { } value
+                ? text + "\n" + Strings.Format("settings.detailedDiagnostics.override", value ? "true" : "false")
+                : text;
+        }
+    }
+
+    private void LoadDriverSettingsForThisPc()
+    {
+        var sources = DiagnosticSourcesFactory();
+        bool? userOverride = null;
+        try { userOverride = DriverSettingsFile.ReadDriverAudit(Path.Combine(sources.SteamPath, "config", "steamvr.vrsettings")); }
+        catch (Exception) { }
+        LoadDriverSettings(DriverSettingsFile.Locate(AppContext.BaseDirectory, sources.OpenVrPaths), userOverride);
+    }
+
+    /// <summary>Shows the flag from <paramref name="path"/> (null: no driver folder found) without writing it.</summary>
+    internal void LoadDriverSettings(string? path, bool? userOverride)
+    {
+        driverSettingsPath = path;
+        driverAuditOverride = userOverride;
+        loadingDriverSettings = true;
+        try
+        {
+            DetailedDiagnostics = path is not null && (DriverSettingsFile.ReadDriverAudit(path) ?? false);
+            driverSettingsMessage = path is null ? ("settings.detailedDiagnostics.notFound", []) : ("settings.detailedDiagnostics.current", [path]);
+        }
+        catch (Exception exception)
+        {
+            driverSettingsPath = null;
+            DetailedDiagnostics = false;
+            driverSettingsMessage = ("settings.detailedDiagnostics.failed", [exception.Message]);
+        }
+        finally { loadingDriverSettings = false; }
+        OnPropertyChanged(nameof(HasDriverSettings));
+        OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+    }
+
+    partial void OnDetailedDiagnosticsChanged(bool value)
+    {
+        if (loadingDriverSettings || closing || driverSettingsPath is not { } path) return;
+        try
+        {
+            DriverSettingsFile.WriteDriverAudit(path, value);
+            driverSettingsMessage = ("settings.detailedDiagnostics.saved", [path]);
+        }
+        catch (Exception exception)
+        {
+            driverSettingsMessage = ("settings.detailedDiagnostics.failed", [exception.Message]);
+            loadingDriverSettings = true;
+            try { DetailedDiagnostics = !value; }
+            finally { loadingDriverSettings = false; }
+        }
+        OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+    }
+
+    [RelayCommand] private void ResetDetailedDiagnostics() => DetailedDiagnostics = DriverSettingsFile.ShippedDriverAudit;
 
     private static string Size(long bytes) => bytes >= 1024 * 1024
         ? (bytes / 1024d / 1024d).ToString("0.0", CultureInfo.InvariantCulture) + " MB"

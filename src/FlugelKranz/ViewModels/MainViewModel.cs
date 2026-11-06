@@ -145,7 +145,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         nameof(DragSmoothLabel), nameof(TurnSmoothLabel), nameof(InfiniteDragSmoothLabel),
         nameof(InfiniteTurnSmoothLabel), nameof(InfiniteTurnHeadSmoothLabel), nameof(InfiniteWalkingBoostLabel),
         nameof(BrakeRampLabel), nameof(ValveIndexPositionDeadZoneLabel), nameof(ValveIndexForceThresholdLabel),
-        nameof(ValveIndexForceStatus), nameof(DiagnosticStatus), nameof(DiagnosticFileList), nameof(DiagnosticPlanHeader)
+        nameof(ValveIndexForceStatus), nameof(DiagnosticStatus), nameof(DiagnosticFileList), nameof(DiagnosticPlanHeader),
+        nameof(DetailedDiagnosticsStatus)
     ];
 
     /// <summary>
@@ -223,6 +224,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             new UiProgress(Update),
             CreateSettings,
             OperatingSystem.IsWindows() ? Platform.HighResolutionDelay.Wait : null);
+        if (OperatingSystem.IsWindows()) LoadDriverSettingsForThisPc();
         if (enableIndependentDrag && OperatingSystem.IsWindows()) controller.RefreshDragConnection();
         if (runtimeFactory is null && !OperatingSystem.IsWindows() && File.Exists(libraryPath))
         {

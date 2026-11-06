@@ -277,10 +277,17 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             DiagnosticsSection(model)
         );
 
-    /// <summary>"Save diagnostic logs": a list of what goes in, then Save / Cancel.</summary>
+    /// <summary>The driverAudit flag, then "Save diagnostic logs": a list of what goes in, then Save / Cancel.</summary>
     private static Control DiagnosticsSection(MainViewModel model) =>
         new StackPanel().Spacing(8).Children(
             Header(model.Strings, "settings.diagnostics.header"),
+            Row(model.Strings, "settings.detailedDiagnostics.enabled",
+                new CheckBox { Name = "DetailedDiagnostics" }.IsChecked(model, x => x.DetailedDiagnostics)
+                    .IsEnabled(model, x => x.HasDriverSettings),
+                ResetButton(model, x => x.ResetDetailedDiagnosticsCommand)),
+            Note(model.Strings, "settings.detailedDiagnostics.note"),
+            new SelectableTextBlock { Name = "DetailedDiagnosticsStatus" }.Text(model, x => x.DetailedDiagnosticsStatus)
+                .TextWrapping(TextWrapping.Wrap),
             Note(model.Strings, "settings.diagnostics.when"),
             Localize(model.Strings, new Button { Name = "PrepareDiagnosticLogs" }, (b, s) => b.Content = s, "settings.diagnostics.collect")
                 .IsEnabled(model, x => x.CanUseDiagnostics)

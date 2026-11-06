@@ -411,6 +411,42 @@ script's summary.txt line for line apart from the order of equal counts.
 205 C# tests, 202 pass (the 3 known `[AvaloniaFact]` discovery errors). Not
 tried in the real app.
 
+## 2026-11-06 — Detailed diagnostics setting (driverAudit)
+
+Affected files: the new `src/FlugelKranz/Diagnostics/DriverSettingsFile.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.Diagnostics.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.cs`,
+`src/FlugelKranz/Views/MainView.cs`, both language tables and the new
+`tests/FlugelKranz.Tests/DriverSettingsFileTests.cs`.
+
+The Diagnostic logs section gains a **Detailed diagnostics** checkbox for the
+driver's `driverAudit` flag (the 1 Hz `DriverAudit` line in `vrserver.txt`).
+The driver reads its flags once when SteamVR loads it, so the app writes the
+flag into the driver's own `resources/settings/default.vrsettings` and the UI
+says it takes effect after SteamVR is restarted. The file is found next to
+the app (`driver/flugelkranz`, the release layout) or, failing that, among
+the `external_drivers` registered in `openvrpaths.vrpath`; only the
+`driver_flugelkranz.driverAudit` key changes, every other key is kept, and
+the write goes through a temporary file. If neither place has the driver the
+checkbox is disabled and says why. If the user's `steamvr.vrsettings` has its
+own `driver_flugelkranz.driverAudit`, which wins, the UI says so; that file
+is only read. Opening the app never writes. Reset restores the shipped value.
+
+The shipped default stays `driverAudit: true` for this test build
+(`DriverSettingsFile.ShippedDriverAudit` and
+`native/driver/resources/settings/default.vrsettings`, which a test keeps in
+step). `build-windows.ps1` copies the shipped file over the deployed one, so
+a rebuild resets the setting.
+
+### Testing
+
+`DriverSettingsFileTests` checks the shipped value, that writing the flag
+keeps every other key, unset / missing files, both ways of finding the
+driver folder, and the view model: load without writing, toggle writes and
+reports the restart, Reset, the steamvr.vrsettings note, and no driver
+folder. 210 C# tests, 207 pass (the 3 known `[AvaloniaFact]` discovery
+errors). Not tried in the real app.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
