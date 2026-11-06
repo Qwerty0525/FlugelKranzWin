@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Markup.Declarative;
 using Avalonia.Media;
+using FlugelKranz.Localization;
 using FlugelKranz.ViewModels;
 using System.Linq.Expressions;
 
@@ -54,7 +55,7 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
         }
             .Content(model, x => x.ModeLabel)
             .Command(model, x => x.ToggleModeCommand);
-        ToolTip.SetTip(modeButton, "I: 無限歩行 / F: 自由飛行");
+        LocalizeTip(model.Strings, modeButton, "main.mode.tooltip");
         var settingsButton = new Button
         {
             Width = 64,
@@ -78,12 +79,16 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             .Content("↻")
             .IsEnabled(model, x => x.IsConnected)
             .Command(model, x => x.ResetCommand);
-        ToolTip.SetTip(resetPoseButton, "接続時の位置・姿勢に戻す");
+        LocalizeTip(model.Strings, resetPoseButton, "main.resetPose.tooltip");
         var main = new Border
         {
             Padding = new Thickness(28)
         }.Classes("app-surface")
-            .Child(new StackPanel().Orientation(Orientation.Horizontal).Spacing(16)
+            .Child(new Grid().Children(
+                LanguageSelector(model)
+                    .HorizontalAlignment(HorizontalAlignment.Right)
+                    .VerticalAlignment(VerticalAlignment.Top),
+                new StackPanel().Orientation(Orientation.Horizontal).Spacing(16)
                 .HorizontalAlignment(HorizontalAlignment.Center)
                 .VerticalAlignment(VerticalAlignment.Center).Children(
                     modeButton,
@@ -96,7 +101,7 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                         VerticalAlignment = VerticalAlignment.Center
                     }
                         .Children(settingsButton, resetPoseButton)
-                ));
+                )));
         var panel = new Border
         {
             Padding = new Thickness(20),
@@ -130,26 +135,28 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
     private static Control SettingsPanel(MainViewModel model) =>
         new StackPanel().Spacing(10).Children(
             new DockPanel().Children(
-                new TextBlock().Text("設定").FontSize(24).FontWeight(FontWeight.SemiBold)
+                Localize(model.Strings, new TextBlock(), (t, s) => t.Text = s, "settings.title").FontSize(24).FontWeight(FontWeight.SemiBold)
                     .VerticalAlignment(VerticalAlignment.Center),
-                new Button().Content("閉じる")
-                    .HorizontalAlignment(HorizontalAlignment.Right)
-                    .Command(model, x => x.ToggleSettingsCommand)
+                new StackPanel().Orientation(Orientation.Horizontal).Spacing(12)
+                    .HorizontalAlignment(HorizontalAlignment.Right).Children(
+                        LanguageSelector(model),
+                        Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.close")
+                            .Command(model, x => x.ToggleSettingsCommand))
             ),
             new TextBlock().Text(model, x => x.Status).TextWrapping(TextWrapping.Wrap),
-            new Button().Content("SteamVR のバインド設定を開く")
+            Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.openBindings")
                 .IsVisible(model, x => x.SupportsSteamVrBindings)
                 .Command(model, x => x.OpenSteamVrBindingsCommand),
             new TextBlock().Text(model, x => x.ReferenceSpaceOffsetStatus)
                 .TextWrapping(TextWrapping.Wrap),
-            new TextBlock().Text("操作状態").FontWeight(FontWeight.SemiBold),
+            Localize(model.Strings, new TextBlock(), (t, s) => t.Text = s, "settings.inputStatus").FontWeight(FontWeight.SemiBold),
             new TextBlock().Text(model, x => x.LeftStatus),
             new TextBlock().Text(model, x => x.RightStatus),
             new TextBlock().Text(model, x => x.InputDiagnostics).TextWrapping(TextWrapping.Wrap),
             new TextBlock().Text(model, x => x.ValveIndexForceStatus)
                 .IsVisible(model, x => x.IsValveIndexDetected),
             Divider(),
-            Header("Valve Index 専用入力"),
+            Header(model.Strings, "settings.valveIndex.header"),
             Row(model, x => x.ValveIndexPositionDeadZoneLabel,
                 new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.ValveIndexPositionDeadZone),
@@ -159,12 +166,12 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.ValveIndexForceThreshold),
                 ResetButton(model, x => x.ResetValveIndexForceThresholdCommand)),
             Divider(),
-            Header("動作モード"),
-            Row(model, x => x.ModeDescription, new Button().Content("I / F 切替")
+            Header(model.Strings, "settings.mode.header"),
+            Row(model, x => x.ModeDescription, Localize(model.Strings, new Button(), (b, s) => b.Content = s, "settings.mode.toggle")
                     .Command(model, x => x.ToggleModeCommand),
                 ResetButton(model, x => x.ResetModeCommand)),
             Divider(),
-            Header("無限歩行 — ドラグスムーズ"),
+            Header(model.Strings, "settings.infiniteSmooth.header"),
             Row(model, x => x.InfiniteDragSmoothLabel, new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.InfiniteDragSmoothSeconds),
                 ResetButton(model, x => x.ResetInfiniteDragSmoothCommand)),
@@ -175,25 +182,25 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.InfiniteTurnHeadSmoothSeconds),
                 ResetButton(model, x => x.ResetInfiniteTurnHeadSmoothCommand)),
             Divider(),
-            Header("無限歩行ブースト"),
+            Header(model.Strings, "settings.infiniteBoost.header"),
             Row(model, x => x.InfiniteWalkingBoostLabel, new Slider().Minimum(0).Maximum(2).TickFrequency(0.05)
                     .Value(model, x => x.InfiniteWalkingBoostMultiplier),
                 ResetButton(model, x => x.ResetInfiniteWalkingBoostCommand)),
             Divider(),
-            Header("自由飛行 — 頭部操縦（試作）"),
-            Row("有効（X/Aで操縦切替）", new CheckBox { Name = "HeadPilotEnabled" }.IsChecked(model, x => x.HeadPilotEnabled),
+            Header(model.Strings, "settings.headPilot.header"),
+            Row(model.Strings, "settings.headPilot.enabled", new CheckBox { Name = "HeadPilotEnabled" }.IsChecked(model, x => x.HeadPilotEnabled),
                 ResetButton(model, x => x.ResetHeadPilotCommand)),
             Divider(),
-            Header("自由飛行 — Drag"),
-            Row("有効（押している間に掴む）", new CheckBox { Name = "DragEnabled" }.IsChecked(model, x => x.DragEnabled),
+            Header(model.Strings, "settings.drag.header"),
+            Row(model.Strings, "settings.drag.enabled", new CheckBox { Name = "DragEnabled" }.IsChecked(model, x => x.DragEnabled),
                 ResetButton(model, x => x.ResetDragEnabledCommand)),
             Divider(),
-            Header("自由飛行 — Turn 原点"),
-            Row("頭を原点にする", new CheckBox { Name = "UseHeadTurnOrigin" }.IsChecked(model, x => x.UseHeadTurnOrigin),
+            Header(model.Strings, "settings.turnOrigin.header"),
+            Row(model.Strings, "settings.turnOrigin.head", new CheckBox { Name = "UseHeadTurnOrigin" }.IsChecked(model, x => x.UseHeadTurnOrigin),
                 ResetButton(model, x => x.ResetTurnOriginCommand)),
             Divider(),
-            Header("自由飛行 — 慣性カットオフ"),
-            Row("有効", new CheckBox().IsChecked(model, x => x.InertiaCutoffEnabled),
+            Header(model.Strings, "settings.inertiaCutoff.header"),
+            Row(model.Strings, "settings.enabled", new CheckBox().IsChecked(model, x => x.InertiaCutoffEnabled),
                 ResetButton(model, x => x.ResetInertiaCutoffEnabledCommand)),
             Row(model, x => x.DragCutoffLabel, new Slider().Minimum(0).Maximum(50).TickFrequency(0.5)
                     .Value(model, x => x.DragCutoffCentimetresPerSecond),
@@ -202,7 +209,7 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.TurnCutoffDegreesPerSecond),
                 ResetButton(model, x => x.ResetTurnCutoffCommand)),
             Divider(),
-            Header("慣性加速倍率"),
+            Header(model.Strings, "settings.inertiaAcceleration.header"),
             Row(model, x => x.DragAccelerationLabel, new Slider().Minimum(0).Maximum(5).TickFrequency(0.05)
                     .Value(model, x => x.DragAccelerationMultiplier),
                 ResetButton(model, x => x.ResetDragAccelerationCommand)),
@@ -210,24 +217,24 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.TurnAccelerationMultiplier),
                 ResetButton(model, x => x.ResetTurnAccelerationCommand)),
             Divider(),
-            Header("Z加速"),
+            Header(model.Strings, "settings.zAcceleration.header"),
             Row(model, x => x.ZAccelerationLabel, new Slider().Minimum(1).Maximum(5).TickFrequency(0.05)
                     .Value(model, x => x.ZAccelerationMultiplier),
                 ResetButton(model, x => x.ResetZAccelerationCommand)),
             Divider(),
-            Header("慣性加速ブーストモード"),
-            Row("有効", new CheckBox().IsChecked(model, x => x.InertiaAccelerationBoostEnabled),
+            Header(model.Strings, "settings.accelerationBoost.header"),
+            Row(model.Strings, "settings.enabled", new CheckBox().IsChecked(model, x => x.InertiaAccelerationBoostEnabled),
                 ResetButton(model, x => x.ResetInertiaAccelerationBoostEnabledCommand)),
             Row(model, x => x.InertiaAccelerationBoostMaximumLabel, new Slider().Minimum(1).Maximum(6).TickFrequency(0.05)
                     .Value(model, x => x.InertiaAccelerationBoostMaximumMultiplier),
                 ResetButton(model, x => x.ResetInertiaAccelerationBoostMaximumMultiplierCommand)),
             Divider(),
-            Header("ベクトル回転倍率"),
+            Header(model.Strings, "settings.vectorRotation.header"),
             Row(model, x => x.VectorRotationLabel, new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.VectorRotationMultiplier),
                 ResetButton(model, x => x.ResetVectorRotationCommand)),
             Divider(),
-            Header("慣性減速"),
+            Header(model.Strings, "settings.deceleration.header"),
             Row(model, x => x.InertiaDecelerationLabel, new Slider().Minimum(0).Maximum(10).TickFrequency(0.01)
                     .Value(model, x => x.InertiaDecelerationPerSecond),
                 ResetButton(model, x => x.ResetDecelerationCommand)),
@@ -235,8 +242,8 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.InertiaStopDisplacementMetres),
                 ResetButton(model, x => x.ResetInertiaStopDisplacementCommand)),
             Divider(),
-            Header("慣性減速免除"),
-            Row("有効", new CheckBox().IsChecked(model, x => x.DecelerationExemptionEnabled),
+            Header(model.Strings, "settings.exemption.header"),
+            Row(model.Strings, "settings.enabled", new CheckBox().IsChecked(model, x => x.DecelerationExemptionEnabled),
                 ResetButton(model, x => x.ResetExemptionEnabledCommand)),
             Row(model, x => x.DragDecelerationExemptionDurationLabel, new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.DragDecelerationExemptionDurationRatio),
@@ -248,7 +255,7 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.DecelerationExemptionStrength),
                 ResetButton(model, x => x.ResetExemptionStrengthCommand)),
             Divider(),
-            Header("ドラグスムーズ"),
+            Header(model.Strings, "settings.dragSmooth.header"),
             Row(model, x => x.DragSmoothLabel, new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.DragSmoothSeconds),
                 ResetButton(model, x => x.ResetDragSmoothCommand)),
@@ -256,14 +263,64 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
                     .Value(model, x => x.TurnSmoothSeconds),
                 ResetButton(model, x => x.ResetTurnSmoothCommand)),
             Divider(),
-            Header("ドラグブレーキ"),
+            Header(model.Strings, "settings.dragBrake.header"),
             Row(model, x => x.BrakeRampLabel, new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.BrakeRampSeconds),
                 ResetButton(model, x => x.ResetBrakeRampCommand))
         );
 
-    private static Grid Row(string label, Control editor, Button reset) =>
-        Row(new TextBlock().Text(label), editor, reset);
+    private static Grid Row(UiStrings strings, string labelKey, Control editor, Button reset) =>
+        Row(Localize(strings, new TextBlock(), (t, s) => t.Text = s, labelKey), editor, reset);
+
+    /// <summary>Applies the localized text now and again whenever the UI language changes.</summary>
+    private static T Localize<T>(UiStrings strings, T target, Action<T, string> apply, string key)
+    {
+        apply(target, strings[key]);
+        strings.LanguageChanged += (_, _) => apply(target, strings[key]);
+        return target;
+    }
+
+    private static void LocalizeTip(UiStrings strings, Control target, string key) =>
+        Localize(strings, target, (c, s) => ToolTip.SetTip(c, s), key);
+
+    /// <summary>ENG / JPN / … buttons, one per embedded language table; the active one is checked.</summary>
+    private static Control LanguageSelector(MainViewModel model)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        LocalizeTip(model.Strings, panel, "main.language.tooltip");
+        var buttons = new List<ToggleButton>();
+        foreach (var language in model.Languages)
+        {
+            var button = new ToggleButton
+            {
+                Content = language.SelectorLabel,
+                Tag = language.Code,
+                MinWidth = 52,
+                Padding = new Thickness(8, 4),
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Command = model.SelectLanguageCommand,
+                CommandParameter = language.Code
+            };
+            button.Classes.Add("language-option");
+            ToolTip.SetTip(button, language.NativeName);
+            buttons.Add(button);
+            panel.Children.Add(button);
+        }
+        void Sync()
+        {
+            foreach (var button in buttons)
+                button.IsChecked = Equals(button.Tag, model.Language);
+        }
+        // A click toggles IsChecked itself; re-sync afterwards so exactly the active language stays checked.
+        foreach (var button in buttons)
+            button.Click += (_, _) => Sync();
+        model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(model.Language)) Sync();
+        };
+        Sync();
+        return panel;
+    }
 
     private static Separator Divider() => new() { Margin = new Thickness(0, 8) };
 
@@ -287,12 +344,12 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center
         };
-        ToolTip.SetTip(button, "初期値に戻す");
+        LocalizeTip(model.Strings, button, "settings.reset.tooltip");
         return button.Command(model, command);
     }
 
-    private static TextBlock Header(string text) =>
-        new TextBlock().Text(text).FontWeight(FontWeight.SemiBold).FontSize(16);
+    private static TextBlock Header(UiStrings strings, string key) =>
+        Localize(strings, new TextBlock(), (t, s) => t.Text = s, key).FontWeight(FontWeight.SemiBold).FontSize(16);
 
     private static Grid Row(MainViewModel model, Expression<Func<MainViewModel, string>> label, Control editor, Button reset) =>
         Row(new TextBlock().Text(model, label), editor, reset);

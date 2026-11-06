@@ -270,6 +270,44 @@ other pose update counts (`updates`). Pose and frame output do not change.
 `driver_path_tests` checks the skew of a live device flown with the
 previous command, that stale devices are not sampled, and the command
 step. All four native test suites pass. Not run on hardware.
+## 2026-11-06 — English / Japanese UI switch
+
+Affected files: `src/FlugelKranz/Views/MainView.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.cs`,
+`src/FlugelKranz/ViewModels/SettingsStore.cs`,
+`src/FlugelKranz/FlugelKranz.csproj`, and the new
+`src/FlugelKranz/Localization/` (`UiStrings.cs`, `UiMessage.cs`,
+`Languages/ja.json`, `Languages/en.json`) and
+`tests/FlugelKranz.Tests/LocalizationTests.cs`.
+
+The desktop app's text can now be shown in English. `ENG` / `JPN` buttons sit
+in the top-right corner of the main screen and in the settings header; a click
+switches every label, button, tooltip and status line immediately, without a
+restart. The choice is saved as `"language": "en"` or `"ja"` at the root of
+`config.json`. A missing or unknown value means Japanese, so existing configs
+open unchanged, and the shared `schemaVersion` / Core settings are untouched.
+
+Each language is one JSON table embedded from `Localization/Languages/`;
+dropping in another file (for example `ko.json` with a `"KOR"` selector label)
+adds a button for it, and any key it lacks falls back to Japanese. Status and
+error messages from Core and the OpenVR runtime stay Japanese at the source,
+so console output and logs are unchanged; the UI maps them back through the
+`runtime.*` entries of `ja.json` for display only, including messages with
+embedded values and multi-line restore / disconnect errors. The driver, native
+code and command-line output are not changed.
+
+### Testing
+
+`LocalizationTests` checks that every table has the Japanese keys and
+placeholders, that every Japanese string literal in `FlugelKranz.Core` and
+`FlugelKranz.OpenVR` has an English translation, that the language is saved
+and restored with Japanese as the default, and renders the window headlessly
+in both languages, switching live through the selector. It drives the
+headless session directly because `[AvaloniaFact]` discovery is broken by the
+xunit v4 bump. 191 of 194 C# tests pass; the three failures are the same
+pre-existing `Avalonia.Headless.XUnit` discovery errors. Their test bodies
+were also run once through the same headless session and pass. Not tried in
+the real app or in VR.
 
 ## 2026-10-25 — Redistribution notices
 

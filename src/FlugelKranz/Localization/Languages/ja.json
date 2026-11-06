@@ -1,0 +1,139 @@
+{
+  // Source and fallback table. Keys missing from another language fall back to this text.
+  // "runtime.*" entries must match the Japanese text produced by Core / OpenVR exactly
+  // ({0}, {1}… stand for embedded values); they are used to translate status and error
+  // messages for display only, so console / log output stays Japanese.
+  "_language": { "selectorLabel": "JPN", "nativeName": "日本語", "order": 2 },
+  "strings": {
+    "main.toggle.on": "ON",
+    "main.toggle.off": "OFF",
+    "main.mode.tooltip": "I: 無限歩行 / F: 自由飛行",
+    "main.resetPose.tooltip": "接続時の位置・姿勢に戻す",
+    "main.language.tooltip": "表示言語",
+
+    "settings.title": "設定",
+    "settings.close": "閉じる",
+    "settings.openBindings": "SteamVR のバインド設定を開く",
+    "settings.inputStatus": "操作状態",
+    "settings.reset.tooltip": "初期値に戻す",
+    "settings.enabled": "有効",
+
+    "settings.valveIndex.header": "Valve Index 専用入力",
+    "settings.valveIndex.positionDeadZone": "位置デッドゾーン: {0:0.00}",
+    "settings.valveIndex.forceThreshold": "Force 閾値: {0:0.00}",
+
+    "settings.mode.header": "動作モード",
+    "settings.mode.toggle": "I / F 切替",
+    "mode.infiniteWalking": "無限歩行モード",
+    "mode.freeFlight": "自由飛行モード",
+
+    "settings.infiniteSmooth.header": "無限歩行 — ドラグスムーズ",
+    "settings.infiniteSmooth.drag": "Drag: {0:0.00} 秒",
+    "settings.infiniteSmooth.turn": "Turn: {0:0.00} 秒",
+    "settings.infiniteSmooth.turnHead": "Turn Head: {0:0.00} 秒",
+
+    "settings.infiniteBoost.header": "無限歩行ブースト",
+    "settings.infiniteBoost.multiplier": "補正値: {0:0.00} 倍",
+
+    "settings.headPilot.header": "自由飛行 — 頭部操縦（試作）",
+    "settings.headPilot.enabled": "有効（X/Aで操縦切替）",
+
+    "settings.drag.header": "自由飛行 — Drag",
+    "settings.drag.enabled": "有効（押している間に掴む）",
+
+    "settings.turnOrigin.header": "自由飛行 — Turn 原点",
+    "settings.turnOrigin.head": "頭を原点にする",
+
+    "settings.inertiaCutoff.header": "自由飛行 — 慣性カットオフ",
+    "settings.inertiaCutoff.drag": "Drag: {0:0.0} cm/s",
+    "settings.inertiaCutoff.turn": "Turn: {0:0.0} °/s",
+
+    "settings.inertiaAcceleration.header": "慣性加速倍率",
+    "settings.inertiaAcceleration.drag": "Drag: {0:0.00} 倍",
+    "settings.inertiaAcceleration.turn": "Turn: {0:0.00} 倍",
+
+    "settings.zAcceleration.header": "Z加速",
+    "settings.zAcceleration.multiplier": "Z: {0:0.00} 倍",
+
+    "settings.accelerationBoost.header": "慣性加速ブーストモード",
+    "settings.accelerationBoost.maximum": "最大加速倍率: {0:0.00} 倍",
+
+    "settings.vectorRotation.header": "ベクトル回転倍率",
+    "settings.vectorRotation.multiplier": "倍率: {0:0.00}",
+
+    "settings.deceleration.header": "慣性減速",
+    "settings.deceleration.rate": "{0:0.00} /秒",
+    "settings.deceleration.stopDisplacement": "終端カットオフ: {0:0.######} m",
+
+    "settings.exemption.header": "慣性減速免除",
+    "settings.exemption.drag": "Drag 免除時間: {0:0.00}",
+    "settings.exemption.turn": "Turn 免除時間: {0:0.00}",
+    "settings.exemption.strength": "免除割合: {0:0.00}",
+
+    "settings.dragSmooth.header": "ドラグスムーズ",
+    "settings.dragSmooth.drag": "Drag: {0:0.00} 秒",
+    "settings.dragSmooth.turn": "Turn: {0:0.00} 秒",
+
+    "settings.dragBrake.header": "ドラグブレーキ",
+    "settings.dragBrake.ramp": "適用時間: {0:0.00} 秒",
+
+    "status.off.initial": "オフ — オンにするとランタイムへ接続します。",
+    "status.off.holding": "オフ — 現在の位置・姿勢を保持します。",
+    "status.preparing": "接続・入力を準備しています…",
+    "status.preparingInfiniteWalking": "無限歩行モードで接続・入力を準備しています…",
+    "status.restoring": "接続時の位置・姿勢に戻しています…",
+    "status.drag.idle": "左右の操作入力から Drag",
+    "status.drag.active": "Space Drag — 操作中",
+    "status.turn.idle": "左右の操作入力から Turn",
+    "status.turn.active": "Space Turn — 操作中",
+    "status.stageOffset.disconnected": "送信中の STAGE オフセット: 未接続",
+    "status.stageOffset.value": "送信中の STAGE オフセット: 位置 ({0}, {1}, {2}) 直近移動 ({3}, {4}, {5}) / {6} m 回転 ({7}, {8}, {9}, {10})",
+    "status.valveIndexForce": "Valve Index force — 左: {0:0.00} / 右: {1:0.00}",
+
+    "runtime.connecting": "ランタイムに接続しています…",
+    "runtime.bindingsUnsupported": "このランタイムはバインド設定に対応していません。",
+    "runtime.off.dashboard": "飛行 OFF — ダッシュボード表示中は Drag も停止します。",
+    "runtime.off.dragOnly": "飛行 OFF — Drag のみ有効（慣性なし）。入力を離してから掴んでください。",
+    "runtime.off.holding": "オフ — 現在の位置・姿勢を保持しています。",
+    "runtime.suspended": "操作を一時停止中 — ダッシュボードを閉じ、スティックと操作ボタンを戻してください。",
+    "runtime.returningToInfiniteWalking": "無限歩行モードへ戻しています…",
+    "runtime.waitingForHmd": "HMD のトラッキングを待っています。",
+    "runtime.waitingForControllers": "コントローラーの姿勢・操作入力を待っています。",
+    "runtime.headPilot.on": "頭部操縦 ON — X/A で OFF、長押しで慣性リセット。",
+    "runtime.headPilot.off": "頭部操縦 OFF — X/A で ON、左スティックで推進。",
+    "runtime.on": "オン — 操作入力を一度離してから使用してください。",
+    "runtime.restoreFailed": "復元に失敗しました: {0}",
+    "runtime.disconnectFailed": "切断処理に失敗しました: {0}",
+    "runtime.stopped": "終了しました。接続時の位置・姿勢へ復元しました。",
+    "runtime.modeChanged.infiniteWalking": "無限歩行モードへ切り替えました。操作入力を離してから使用してください。",
+    "runtime.modeChanged.freeFlight": "自由飛行モードへ切り替えました。操作入力を離してから使用してください。",
+    "runtime.spaceReset.infiniteWalking": "無限歩行の高さを戻しています…",
+    "runtime.spaceReset.freeFlight": "自由飛行の水平へ戻しています…",
+
+    "runtime.driver.windowsOnly": "SteamVRドライバーIPCはWindows専用です。",
+    "runtime.driver.notRunning": "3軸回転用のFlugelKranzドライバーが起動していません。install-driver.ps1で登録し、SteamVRを再起動してください。",
+    "runtime.driver.inUse": "別のFlugelKranzがドライバーを使用しています。",
+    "runtime.driver.ipcVersion": "FlugelKranzドライバーのIPCバージョンが一致しません。",
+    "runtime.driver.notResponding": "FlugelKranzドライバーの応答が停止しました。",
+    "runtime.driver.ownershipChanged": "ドライバー接続の所有権が変更されました。",
+    "runtime.driver.invalidTransform": "ドライバーへ送る変換が不正です。",
+    "runtime.driver.busy": "ドライバーの共有データが使用中です。",
+    "runtime.standing.invalid": "Standing 原点が不正です。",
+    "runtime.standing.unavailable": "Standing 原点を取得できません。SteamVR のルーム設定を確認してください。",
+    "runtime.referenceSpace.changed": "SteamVRの基準空間が変更されました。飛行変換を解除して再接続してください。",
+    "runtime.referenceSpace.changedByOtherTool": "SteamVR の基準空間が他のツールに変更されたため停止しました。空間操作ツールを停止して再接続してください。",
+    "runtime.space.invalidTransform": "空間変換が不正です。",
+    "runtime.chaperone.cannotRotate": "SteamVRのChaperoneは要求した回転を保持できません。XYZ回転にはFlugelKranzドライバーが必要です。",
+    "runtime.steamVr.invalidRigidTransform": "SteamVR が不正な剛体変換を返しました。",
+    "runtime.steamVr.invalidPose": "SteamVR が不正な位置・姿勢を返しました。",
+    "runtime.steamVr.windowsOnly": "SteamVR バックエンドは Windows x64 専用です。",
+    "runtime.steamVr.connectFailed": "SteamVR 接続失敗: {0}。SteamVR を起動してください。",
+    "runtime.steamVr.inputUnavailable": "SteamVR Input が利用できません。",
+    "runtime.steamVr.chaperoneUnavailable": "Chaperone が利用できません。",
+    "runtime.steamVr.applicationsUnavailable": "SteamVR Applications が利用できません。",
+    "runtime.steamVr.overlayUnavailable": "SteamVR Overlay が利用できません。",
+    "runtime.steamVr.settingsUnavailable": "SteamVR Settings が利用できません。",
+    "runtime.steamVr.exited": "SteamVR が終了しました。",
+    "runtime.steamVr.overlayInputOverridesRequired": "頭部操縦には SteamVR 開発者設定の Experimental overlay input overrides を有効にしてください。"
+  }
+}
