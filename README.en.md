@@ -109,6 +109,15 @@ While HMD tracking is lost, space updates pause, keeping the ON state, the contr
 
 On a normal exit, the flight transform is released. While OFF, the connection stays open and the position and orientation are held. If the app's heartbeat stops for 500 ms, the running driver releases the transform, and you need to reconnect to recover. If the SteamVR Standing reference space from when you connected changes, controls stop.
 
+### Display language, command interval, gravity compass, diagnostic logs
+
+- **Display language**: `ENG` / `JPN` at the top right of the main screen switches between English and Japanese.
+- **Command interval (experimental)**: the default is High rate (about 3 ms) (「高頻度（約 3 ms）」). Flight commands are sent in finer steps, which reduces the jitter where the avatar's body and head drift apart while moving. Off goes back to the old interval of about 15.6 ms. The switch applies at once, and throws and glides come out about the same as before.
+- **Gravity compass**: a small see-through ball above the back of your hand that shows the real room as you see it. The glowing dot is real down (gravity); the white dot is the flown VRChat world's down. Release builds start with it off; turn it on under Gravity compass → Show (「重力コンパス」→「表示する」). The default hand is the right hand. It is a SteamVR overlay, so it does not affect VRChat's controls or picture.
+- **Save diagnostic logs…** (「診断ログを保存…」): under Diagnostic logs, this packs the SteamVR, SlimeVR, Virtual Desktop and FlugelKranz logs and a summary.txt into one zip in `Documents\FlugelKranz Logs\`. The PC name, the Windows user name and user-folder paths are replaced; anything else (device serial numbers, for example) stays, so look through the zip before posting it. Nothing is sent anywhere. Close SteamVR first (keep this window open) to capture the whole session. To report a problem, open an issue on [GitHub Issues](https://github.com/Qwerty0525/FlugelKranzWin/issues) and attach the zip.
+
+The window title shows the app version.
+
 ## Saving settings
 
 Settings are saved to `%USERPROFILE%/.config/FlugelKranz/config.json` whenever they change. `FLUGELKRANZ_CONFIG` changes the settings file, and `XDG_CONFIG_HOME` changes the settings directory. Each setting's reset button returns that item to its default.
@@ -132,6 +141,7 @@ For development steps, see [WINDOWS.md](WINDOWS.md) (Japanese); for coordinate t
 ## Upstream, reference implementations and license
 
 - [FlugelKranz / Reina_Sakiria](https://github.com/ReinaS-64892/FlugelKranz): the original free-flight specification, Core and UI. This is where the Linux version is developed.
+- [FlugelKranzWin / kqnade](https://github.com/kqnade/FlugelKranzWin): the Windows / SteamVR version this fork is based on. The changes made in this fork are listed in [MODIFICATIONS.md](MODIFICATIONS.md).
 - [Kawaii Move Assist](https://github.com/ReinaS-64892/reina_s_kawaii_move_assist): used as a reference for the SteamVR pose-update hook and the world-space body pose structure.
 - [OpenVR Advanced Settings](https://github.com/OpenVR-Advanced-Settings/OpenVR-AdvancedSettings): a reference implementation for SteamVR Input, space manipulation and Chaperone.
 

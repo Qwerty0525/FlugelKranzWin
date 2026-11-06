@@ -109,6 +109,15 @@ HMD のトラッキングを失った間は、ON 状態、操作状態、慣性�
 
 通常終了時は飛行変換を解除します。OFF 中は接続を維持して位置・姿勢を保持します。アプリの heartbeat が 500 ms 途絶えると、稼働中のドライバーは変換を解除し、復帰には再接続が必要です。接続時の SteamVR Standing 基準空間が変更された場合は操作を停止します。
 
+### 表示言語・指令の送信間隔・重力コンパス・診断ログ
+
+- **表示言語**：メイン画面右上の `ENG` / `JPN` で英語と日本語を切り替えます。
+- **指令の送信間隔（試験的）**：既定は「高頻度（約 3 ms）」です。飛行の指令を細かく送り、移動中にアバターの体と頭がずれる揺れを減らします。オフにすると従来の約 15.6 ms に戻ります。切り替えはすぐに反映され、投げ出しと慣性の移動距離は従来とほぼ同じです。
+- **重力コンパス**：手の甲の上に小さな半透明の球を表示し、見えている現実の部屋の向きを示します。光る点が現実の下（重力）、白い点が飛行中の VRChat ワールドの下です。配布版の既定はオフで、「重力コンパス」→「表示する」で有効にします（既定は右手）。SteamVR オーバーレイなので、VRChat の操作や映像には影響しません。
+- **診断ログを保存…**：「診断ログ」から、SteamVR・SlimeVR・Virtual Desktop・FlugelKranz のログと summary.txt を 1 つの zip にまとめ、`ドキュメント\FlugelKranz Logs\` に保存します。PC 名・Windows のユーザー名・ユーザーフォルダーのパスは置き換えますが、それ以外（デバイスのシリアル番号など）は残るため、公開前に中身を確認してください。何も送信しません。SteamVR を閉じてから（このウィンドウは開いたまま）保存すると、セッション全体が残ります。不具合は zip を添えて [GitHub Issues](https://github.com/Qwerty0525/FlugelKranzWin/issues) へ報告してください。
+
+アプリのバージョンはウィンドウのタイトルに表示します。
+
 ## 設定保存
 
 設定は変更時に `%USERPROFILE%/.config/FlugelKranz/config.json` へ保存されます。`FLUGELKRANZ_CONFIG` で保存先ファイルを、`XDG_CONFIG_HOME` で設定ディレクトリを変更できます。各設定のリセットボタンはその項目を既定値へ戻します。
@@ -132,6 +141,7 @@ FlugelKranz.exe（Avalonia / Windows）
 ## 上流・参考実装とライセンス
 
 - [FlugelKranz / Reina_Sakiria](https://github.com/ReinaS-64892/FlugelKranz)：元となる自由飛行の仕様、Core、UI。Linux 版の開発元です。
+- [FlugelKranzWin / kqnade](https://github.com/kqnade/FlugelKranzWin)：この Fork の元になった Windows / SteamVR 版です。この Fork での変更は [MODIFICATIONS.md](MODIFICATIONS.md)（英語）に記載しています。
 - [Kawaii Move Assist](https://github.com/ReinaS-64892/reina_s_kawaii_move_assist)：SteamVR の姿勢更新フックと world-space body pose の構成を参考にしています。
 - [OpenVR Advanced Settings](https://github.com/OpenVR-Advanced-Settings/OpenVR-AdvancedSettings)：SteamVR Input、空間操作、Chaperone の参考実装です。
 
