@@ -90,7 +90,7 @@ HMD の登録と `GetComponent` を観測し、`IVRDriverDirectModeComponent_009
 
 ## ログと実機確認
 
-起動時の `FlugelKranz flags:` 行に、読み込んだ動作フラグの値をすべて記録します。設定ファイルにないフラグは、そのフラグ追加前の動作に当たるコンパイル時の値を使います。
+起動時は `FlugelKranz driver version: 0.9.0` のようにドライバーのバージョン（`CMakeLists.txt` の `project(... VERSION)`）を記録します。`FlugelKranz flags:` 行には、読み込んだ動作フラグの値をすべて記録します。設定ファイルにないフラグは、そのフラグ追加前の動作に当たるコンパイル時の値を使います。
 
 `vrserver.txt` の `FrameAudit` は最大毎秒 1 レイヤーを記録します。
 

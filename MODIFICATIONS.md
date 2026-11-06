@@ -13,8 +13,51 @@ Base revision: `6dfcb65` (2026-09-14).
 The complete corresponding source for any binary built from these changes
 is the `slimevr-hmd-anchored` branch of
 <https://github.com/Qwerty0525/FlugelKranzWin>. Each release is also tagged
-at the exact commit it was built from (for example `slimevr-20261025`), and
-those tags are kept.
+at the exact commit it was built from (`slimevr-20261025` for the first
+build, then `v0.9.0` and later version tags), and those tags are kept.
+
+## v0.9.0 — 2026-11-07
+
+The first numbered release, built from tag `v0.9.0`. The earlier
+`slimevr-20261025` build counts as 0.1. Summary of what changed since then;
+the dated sections below have the details and what was tested.
+
+Fixed:
+
+- Avatar jitter while moving: the app sends flight commands about every
+  3 ms instead of about 15.6 ms (**Command interval → High rate**, now on by
+  default). On the maintainer's Quest 2 / Quest Link + SlimeVR setup the
+  head-to-body offset while flying dropped about threefold (DriverAudit skew
+  mean 7.3 cm → 2.6 cm). The remaining offset needs driver-side changes,
+  planned for 1.0.
+- View stutter while flying: the readback lock split was already in 0.1 but
+  unconfirmed. On 2026-11-06 (Quest Link, SlimeVR) the render correction used
+  an HMD sample 47 ms or older in 1 of 343 flying one-second samples (0.3%),
+  against 72% before the split. Pose updates also no longer wait for the app
+  (a pause in the app, such as a .NET garbage collection, stalled every
+  device's pose update) and readbacks pair with the right transform.
+- rebocap's driver is served physical raw poses by default.
+- `vrclient_FlugelKranz.txt` no longer grows by about 280 lines a second
+  (Standing-origin check every 100 ms instead of every loop tick; a real log
+  from 2026-11-06 23:54 shows about 2 lines a second).
+
+New:
+
+- English / Japanese UI switch.
+- **Save diagnostic logs…**: one redacted zip (SteamVR, SlimeVR, Virtual
+  Desktop and FlugelKranz logs plus summary.txt) for GitHub Issues; read-only,
+  nothing is sent. **Detailed diagnostics** turns the driver's `DriverAudit`
+  log on or off.
+- Gravity compass: a navball overlay above the back of one hand with real
+  down and the flown world's down. Off by default in release builds.
+- No console window with the GUI; app icon; English README.
+- The version shows in the window title, the first line of summary.txt,
+  `FlugelKranz.exe --version` and the driver's startup log.
+- Opt-in driver diagnostics and fixes, all off by default: `driverAudit`,
+  `fallbackFramePose`, `readbackGenerations`.
+
+Release defaults: `highRateCommandLoop` on, gravity compass off, shipped
+`driverAudit` false. Settings already saved in `config.json` are kept.
 
 ## 2026-09-14 — SlimeVR and other HMD-anchored solvers
 
@@ -1052,6 +1095,35 @@ section without `"enabled"` (other keys kept) and an old flat config (and
 what is saved for it) get on for test and off for release; a saved
 true / false is kept under both; the view model starts and resets to the
 profile default and keeps a saved choice after reopening.
+
+## 2026-11-07 — Version 0.9.0 in the app, logs and driver
+
+Affected files: the new `Directory.Build.props`, `src/FlugelKranz/AppVersion.cs`
+and `tests/FlugelKranz.Tests/AppVersionTests.cs`, `src/FlugelKranz/App.cs`,
+`src/FlugelKranz/Diagnostics/DiagnosticLogCollector.cs`,
+`native/driver/CMakeLists.txt`, `native/driver/Driver.cpp`,
+`native/driver/README.md`, `build-windows.ps1`, `WINDOWS.md`, `AGENTS.md`,
+`README.md` and `README.en.md`.
+
+`Directory.Build.props` sets `<Version>0.9.0</Version>` for every project, so
+the assemblies carry AssemblyVersion and FileVersion 0.9.0.0 and the
+InformationalVersion `0.9.0+<commit>`. The window title reads
+`FlugelKranz 0.9.0` (`(test build)` added for `-TestBuild`), and the first
+line of summary.txt names the version, the build profile and the short
+commit. The driver's CMake project carries the same number and logs
+`FlugelKranz driver version: 0.9.0` at Init, so a vrserver.txt says which
+driver was loaded; summary.txt picks the line up with the other driver lines.
+`build-windows.ps1 -OutputDir DIR` publishes to another folder than the
+deployed `artifacts/windows-x64`, for building a release archive without
+touching a deployed test build. The READMEs describe the language switch,
+the command interval, the gravity compass and the log saving, and credit
+kqnade's FlugelKranzWin.
+
+### Testing
+
+`AppVersionTests`: `Directory.Build.props`, the driver's CMake project and the
+built assembly agree on the number; parsing of the informational version;
+the title and the summary header for both profiles.
 
 ## 2026-10-25 — Redistribution notices
 

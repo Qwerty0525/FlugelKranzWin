@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(FlugelKranzDriver LANGUAGES C CXX)
+# Keep VERSION in step with <Version> in Directory.Build.props (AppVersionTests checks).
+project(FlugelKranzDriver VERSION 0.9.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/minhook)
+# The driver logs this at Init ("FlugelKranz driver version: 0.9.0").
+add_compile_definitions(FLUGELKRANZ_VERSION="${PROJECT_VERSION}")
 add_library(driver_flugelkranz SHARED Driver.cpp)
 target_include_directories(driver_flugelkranz PRIVATE vendor/openvr)
 target_link_libraries(driver_flugelkranz PRIVATE minhook)

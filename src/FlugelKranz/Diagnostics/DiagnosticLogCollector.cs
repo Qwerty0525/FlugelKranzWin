@@ -214,14 +214,15 @@ public static class DiagnosticLogCollector
     private sealed record AuditRow(int Sampled, int HeadAge, int Layers, int Missed, int Held, int Bypass, bool Flying);
 
     /// <summary>summary.txt: the numbers compared between flight sessions (same as collect-vr-logs.ps1, plus DriverAudit).</summary>
-    public static string BuildSummary(IReadOnlyList<(string ArchivePath, string Text)> files, DateTime collectedAt)
+    /// <param name="app">Which FlugelKranz wrote it; <see cref="AppVersion.Describe"/> of this build when null.</param>
+    public static string BuildSummary(IReadOnlyList<(string ArchivePath, string Text)> files, DateTime collectedAt, string? app = null)
     {
         var s = new StringBuilder();
         var inv = CultureInfo.InvariantCulture;
         void Line(string text = "") => s.Append(text).Append('\n');
         string? Find(string archivePath) => files.FirstOrDefault(f => string.Equals(f.ArchivePath, archivePath, StringComparison.OrdinalIgnoreCase)).Text;
 
-        Line($"Collected {collectedAt:yyyyMMdd-HHmmss} by FlugelKranz (PC name, user name and profile paths redacted)");
+        Line($"Collected {collectedAt:yyyyMMdd-HHmmss} by {app ?? AppVersion.Describe(BuildProfiles.Current)}; PC name, user name and profile paths redacted");
         Line();
         string? vrserver = Find("steamvr/vrserver.txt");
         if (vrserver is not null)

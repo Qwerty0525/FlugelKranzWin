@@ -13,6 +13,11 @@
 #include "Transform.h"
 #include "FrameHistory.h"
 
+// Release number from native/driver/CMakeLists.txt (project VERSION); logged once at Init.
+#ifndef FLUGELKRANZ_VERSION
+#define FLUGELKRANZ_VERSION "unknown"
+#endif
+
 namespace {
 using Callback=void(*)(void*,uint32_t,const vr::DriverPose_t&,uint32_t);
 Callback originals[2]{};
@@ -722,6 +727,7 @@ public:
         if(result!=MH_OK) {Cleanup();return vr::VRInitError_Driver_Failed;}
         minHookInitialized=true;
         observerStopping=false;
+        vr::VRDriverLog()->Log("FlugelKranz driver version: " FLUGELKRANZ_VERSION);
         loadSettings();
         propertiesReady=true;
         {

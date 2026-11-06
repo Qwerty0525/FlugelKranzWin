@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    One release number for the app, its libraries and the driver. Keep it in step with
+    project(FlugelKranzDriver VERSION ...) in native/driver/CMakeLists.txt (AppVersionTests checks).
+    The SDK derives AssemblyVersion and FileVersion (0.9.0.0) from it, and InformationalVersion
+    (0.9.0+git-commit), which the window title, summary.txt and the version option of FlugelKranz.exe show.
+    C# projects only: the CMake-generated C++ projects under artifacts/ import this file too.
+  -->
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <Version>0.9.0</Version>
+  </PropertyGroup>
+</Project>

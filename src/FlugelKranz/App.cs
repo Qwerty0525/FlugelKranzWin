@@ -83,7 +83,7 @@ public class App : Application
             var vm = new MainViewModel(Program.MonadoLibraryPath, enableIndependentDrag: true);
             var window = new Window
             {
-                Title = "FlugelKranz", Width = 1100, Height = 650, MinWidth = 420, MinHeight = 520,
+                Title = AppVersion.Title(BuildProfiles.Current), Width = 1100, Height = 650, MinWidth = 420, MinHeight = 520,
                 Content = new MainView(vm),
                 Icon = LoadIcon()
             };
