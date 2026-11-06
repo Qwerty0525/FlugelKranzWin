@@ -478,6 +478,35 @@ loads with it on and that a saved `false` stays off. `DriverSettingsFileTests`
 checks the shipped file and the checkbox's Reset against the new value.
 211 C# tests, 208 pass (the 3 known `[AvaloniaFact]` discovery errors).
 
+## 2026-11-06 — Standing-origin check every 100 ms
+
+Affected files: the new `src/FlugelKranz.OpenVR/StandingOriginCheck.cs`,
+`src/FlugelKranz.OpenVR/DriverFlightRuntime.cs`,
+`src/FlugelKranz.OpenVR/OpenVrFlightRuntime.cs`,
+`tests/FlugelKranz.Tests/DriverFlightRuntimeTests.cs`,
+`tests/FlugelKranz.Tests/OpenVrFlightRuntimeTests.cs`.
+
+`DriverFlightRuntime.ReadPhysical` read the Standing origin
+(`GetWorkingStandingZeroPoseToRawTrackingPose`) on every loop tick to stop
+when another tool moves it. SteamVR logs
+`[CVRChaperoneClient] the working set is already updated … do nothing` to
+`vrclient_FlugelKranz.txt` for each call, so with the 3 ms loop the file grew
+by about 280 lines a second (about 2.5 MB a minute in the 2026-11-06 18:30
+log). The check now runs at most every 100 ms (the first read checks at
+once). An external change still stops the flight with the same message,
+within 100 ms instead of one tick. The legacy Chaperone backend
+(`OpenVrFlightRuntime`, not used for the current flight) rate-limits the
+check in `ReadPhysical` the same way; its `Apply` and `Restore` still check
+before every write, since they write the working set themselves.
+
+### Testing
+
+`DriverFlightRuntimeTests` runs one second of 3 ms ticks against a manual
+clock: 10 origin reads instead of 333, and a moved origin still throws
+within 100 ms without writing. `OpenVrFlightRuntimeTests` checks the same
+rate limit on reads and that `Apply` still refuses a moved origin. Not yet
+checked against a real vrclient log.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,
