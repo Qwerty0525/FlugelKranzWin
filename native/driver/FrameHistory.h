@@ -36,8 +36,7 @@ inline vr::HmdMatrix34_t removeTransform(const vr::HmdMatrix34_t& rendered,Pose 
 }
 // Undo the flight on a pose read back from vrserver, for solvers that must see the body.
 inline void removeTransform(vr::TrackedDevicePose_t& pose,Pose transform) {
-    if(transform.x==0 && transform.y==0 && transform.z==0 && std::abs(transform.w)==1
-        && transform.px==0 && transform.py==0 && transform.pz==0) return;
+    if(isIdentity(transform)) return;
     pose.mDeviceToAbsoluteTracking=removeTransform(pose.mDeviceToAbsoluteTracking,transform);
     const vr::HmdQuaternion_t inverse{transform.w,-transform.x,-transform.y,-transform.z};
     for(auto* velocity:{&pose.vVelocity,&pose.vAngularVelocity}) {
@@ -86,10 +85,7 @@ public:
         // Keep correcting late virtual frames until the supported history window
         // contains only identity output. Then preserve the HMD driver's prediction.
         return count && std::isfinite(now) && now>=lastTick && now-lastTick<=50
-            && lastTick-heldSince>=250
-            && heldTransform.x==0 && heldTransform.y==0 && heldTransform.z==0
-            && std::abs(heldTransform.w)==1
-            && heldTransform.px==0 && heldTransform.py==0 && heldTransform.pz==0;
+            && lastTick-heldSince>=250 && isIdentity(heldTransform);
     }
     PhysicalFrame physicalAt(double now,float prediction) const {
         // SubmitLayer specifies when this frame's HMD pose was predicted to.

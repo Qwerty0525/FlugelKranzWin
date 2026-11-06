@@ -99,7 +99,7 @@ HMD の登録と `GetComponent` を観測し、`IVRDriverDirectModeComponent_009
 ctest --test-dir artifacts/driver-build -C Release --output-on-failure
 ```
 
-MSVC x64、Windows SDK、CMake、.NET 10 が必要です。`transform_tests`、`observer_tests`、`frame_tests` は座標合成・恒等変換・フレーム情報保持・物理姿勢の補間と予測を検証します。テストだけでは実機のフック互換性や表示品質を確認できません。
+MSVC x64、Windows SDK、CMake、.NET 10 が必要です。`transform_tests`、`observer_tests`、`frame_tests` は座標合成・恒等変換・フレーム情報保持・物理姿勢の補間と予測を検証します。`driver_path_tests` は姿勢更新フックを偽の元関数で駆動し、恒等変換のパススルー、飛行変換の適用、読み戻し用の保留・確定の順序、古い指令の解除、未知の ABI サイズの素通しを検証します。テストだけでは実機のフック互換性や表示品質を確認できません。
 
 同梱コードの出典とライセンスを保持してください。
 

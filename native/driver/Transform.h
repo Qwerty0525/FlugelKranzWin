@@ -22,10 +22,14 @@ inline bool valid(Pose p) {
         &&std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&std::isfinite(p.w)
         &&std::abs(p.x*p.x+p.y*p.y+p.z*p.z+p.w*p.w-1)<0.0001;
 }
+// Exact identity (either quaternion sign), the value the app sends for reset/OFF.
+inline bool isIdentity(Pose p) {
+    return p.x==0 && p.y==0 && p.z==0 && std::abs(p.w)==1
+        && p.px==0 && p.py==0 && p.pz==0;
+}
 inline vr::DriverPose_t apply(vr::DriverPose_t p, Pose transform) {
     // Reset / disconnected client: preserve the original driver's representation.
-    if(transform.x==0 && transform.y==0 && transform.z==0 && std::abs(transform.w)==1
-        && transform.px==0 && transform.py==0 && transform.pz==0) return p;
+    if(isIdentity(transform)) return p;
     vr::HmdQuaternion_t q{transform.w,transform.x,transform.y,transform.z};
     auto bodyToWorld=multiply(q,p.qWorldFromDriverRotation);
     double t[3]; rotate(q,p.vecWorldFromDriverTranslation,t);
