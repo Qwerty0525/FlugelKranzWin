@@ -13,6 +13,16 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // WinExe: no console window for the GUI. Options print to the terminal that started us.
+        if (!Platform.CommandLineConsole.IsCommandLine(args))
+            return RunCommandLine(args);
+        Platform.CommandLineConsole.Attach();
+        try { return RunCommandLine(args); }
+        finally { Platform.CommandLineConsole.HoldIfOwnWindow(); }
+    }
+
+    private static int RunCommandLine(string[] args)
+    {
         var libraryOption = new Option<string>("--lib-monado", "LibMonadoPath", "lib")
         {
             Description = "libmonado.so / libmonado_wivrn.so のパス",

@@ -622,6 +622,35 @@ it; configs without the compass key get the right hand.
 checks the device, the status and one new image per flip; the defaults,
 config round trip and settings-panel tests now expect the right hand.
 
+## 2026-11-06 — No console window at startup
+
+Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `src/FlugelKranz/Program.cs`,
+the new `src/FlugelKranz/Platform/CommandLineConsole.cs` and `WINDOWS.md`.
+
+`FlugelKranz.exe` was a console-subsystem exe, so a command window opened
+next to the GUI. It is now `WinExe`. Started without arguments (the GUI),
+no console is involved. Started with any argument (`--diagnose`,
+`--bindings`, `--lib-monado`, `--help`, `--version`, or a mistyped option
+whose error must be shown), it first attaches to the parent process's console
+(`AttachConsole(ATTACH_PARENT_PROCESS)`), so the text appears in the terminal
+it was run from; without one (a shortcut, Explorer) it opens its own console
+(`AllocConsole`) and waits for Enter before closing it. Output already
+redirected to a file or pipe keeps going there. PowerShell does not wait for
+GUI-subsystem programs, so `WINDOWS.md` now shows
+`./FlugelKranz.exe --diagnose | Out-Host`, which waits and sets
+`$LASTEXITCODE`. `build-windows.ps1` and `install-driver.ps1` never run the
+exe, so they are unaffected.
+
+### Testing
+
+The published exe's PE header has the Windows GUI subsystem (2). Run from
+a terminal, `--help` printed the usage and a mistyped option printed the
+parse error, both through `| Out-Host` with the exit code in
+`$LASTEXITCODE`. The unredirected case (AttachConsole into an interactive
+terminal) and the AllocConsole fallback could not be exercised from the
+automated shell. `--diagnose` and the GUI were not started here, since
+either can start SteamVR; they use the same console path as `--help`.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

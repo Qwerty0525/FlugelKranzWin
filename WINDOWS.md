@@ -32,7 +32,7 @@
 cd artifacts/windows-x64
 ./install-driver.ps1
 # 設定と登録を終え、SteamVR を起動してから：
-./FlugelKranz.exe --diagnose
+./FlugelKranz.exe --diagnose | Out-Host
 ./FlugelKranz.exe
 ```
 
@@ -82,6 +82,8 @@ cd artifacts/windows-x64
 ./FlugelKranz.exe --bindings
 ./FlugelKranz.exe --diagnose
 ```
+
+`FlugelKranz.exe` は GUI アプリ（WinExe）なので、引数なしで起動してもコンソール窓は開きません。オプションを付けたときは、起動元のターミナルに出力します（ターミナル以外から起動した場合は専用のコンソールを開き、Enter で閉じます）。PowerShell は GUI アプリの終了を待たないため、結果と終了コードを待つときは `./FlugelKranz.exe --diagnose | Out-Host` のようにパイプしてください（その後 `$LASTEXITCODE` で終了コードを確認できます）。
 
 `--bindings` は SteamVR のバインド設定を開きます。`--diagnose` は UI を開かず、接続・物理姿勢・論理入力を確認します。診断時は別の FlugelKranz を終了し、HMD と左右コントローラーを追跡可能にしてください。入力が揃わない場合は非ゼロで終了します。
 
