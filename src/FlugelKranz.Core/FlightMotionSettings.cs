@@ -87,6 +87,12 @@ public sealed record FlugelKranzSettings
     public FlightMotionSettings FreeFlight { get; init; } = FlightMotionSettings.Default;
     public InfiniteWalkingSettings InfiniteWalking { get; init; } = InfiniteWalkingSettings.Default;
     public ValveIndexInputSettings ValveIndex { get; init; } = ValveIndexInputSettings.Default;
+    /// <summary>
+    /// Run the command loop every <see cref="FlightController.HighRateIntervalMilliseconds"/> ms on a
+    /// high-resolution timer instead of Task.Delay(10), which waits about 15.6 ms on Windows.
+    /// Missing from older configs, so they keep the old loop.
+    /// </summary>
+    public bool HighRateCommandLoop { get; init; }
 
     public FlugelKranzSettings Normalized() => this with
     {

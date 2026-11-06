@@ -270,6 +270,7 @@ other pose update counts (`updates`). Pose and frame output do not change.
 `driver_path_tests` checks the skew of a live device flown with the
 previous command, that stale devices are not sampled, and the command
 step. All four native test suites pass. Not run on hardware.
+
 ## 2026-11-06 — English / Japanese UI switch
 
 Affected files: `src/FlugelKranz/Views/MainView.cs`,
@@ -308,6 +309,53 @@ xunit v4 bump. 191 of 194 C# tests pass; the three failures are the same
 pre-existing `Avalonia.Headless.XUnit` discovery errors. Their test bodies
 were also run once through the same headless session and pass. Not tried in
 the real app or in VR.
+
+## 2026-11-06 — High-rate command loop (opt-in)
+
+Affected files: `src/FlugelKranz.Core/FlightController.cs`,
+`src/FlugelKranz.Core/FlightMotionSettings.cs`,
+`src/FlugelKranz.Core/FreeFlightManipulator.cs`, the new
+`src/FlugelKranz.Core/MotionWindow.cs` and
+`src/FlugelKranz/Platform/HighResolutionDelay.cs`,
+`src/FlugelKranz/ViewModels/MainViewModel.cs`,
+`src/FlugelKranz/Views/MainView.cs`, both language tables, both project files
+(`InternalsVisibleTo` for the tests) and the new
+`tests/FlugelKranz.Tests/CommandLoopTests.cs`.
+
+The app's command loop waited with `Task.Delay(10)`, which on Windows lasts
+one 15.6 ms system tick, so the flight offset changed in steps of
+speed × 15.6 ms (about 14 cm at 8.7 m/s). The driver hands every device the
+command that is current at that device's update, so the HMD and SlimeVR
+trackers can land on different steps; that shows up as the avatar shaking
+during translation. A stopgap for that, not the fix (driver-side continuous
+extrapolation is planned separately).
+
+A new setting, **Command interval → High rate (about 3 ms)**, saved as
+`"highRateCommandLoop"` at the root of `config.json`, makes the loop wait
+3 ms on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` timer instead (Windows 10
+1803+; falls back to `Task.Delay` if the timer cannot be created). The process
+timer resolution is not raised. The loop period becomes about 3 ms plus the
+iteration's own work. It is read on every iteration, so switching applies
+immediately without restarting SteamVR. Missing or false means the old loop,
+so the default and existing configs are unchanged.
+
+Decay, smoothing and integration already depended on elapsed time only. Two
+things depended on the tick: the drag / turn release velocity (one tick's
+displacement over its duration, which over 3 ms is mostly sample noise) and
+the inertia stop check (displacement per tick below
+`InertiaStopDisplacementMetres`, which at 3 ms cut a glide off about five
+times sooner). With the option on, the release velocity is measured over the
+last 1/64 s of hand samples and the stop check uses at least 1/64 s, so a
+throw and the glide that follows come out about the same at either rate. The
+UI status report is now sent every 150 ms instead of every 10th iteration.
+
+### Testing
+
+`CommandLoopTests` checks that the high-rate wait is used only when the
+option is on and that the controller switches between the two waits live,
+and that a noisy 1 m/s drag released at 1/64 s and at 3 ms ticks glides
+0.40–0.55 m and stops after 1–2 s at both rates (without the window the 3 ms
+glide stops after 0.34 m). Not yet flown.
 
 ## 2026-10-25 — Redistribution notices
 

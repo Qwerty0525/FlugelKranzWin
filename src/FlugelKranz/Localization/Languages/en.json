@@ -73,6 +73,9 @@
 
     "settings.dragBrake.header": "Drag brake",
     "settings.dragBrake.ramp": "Ramp time: {0:0.00} s",
+    "settings.commandLoop.header": "Command interval (experimental)",
+    "settings.commandLoop.highRate": "High rate (about 3 ms)",
+    "settings.commandLoop.note": "Off: about 15.6 ms (as before). Takes effect immediately; no SteamVR restart. When on, release speed and the inertia stop check are measured over the old interval (about 15.6 ms), so throws and glides come out about the same.",
 
     "status.off.initial": "OFF — turn ON to connect to the runtime.",
     "status.off.holding": "OFF — keeping the current position and orientation.",

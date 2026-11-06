@@ -106,6 +106,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ValveIndexForceThresholdLabel))]
     private double valveIndexForceThreshold = 0.2;
+    [ObservableProperty] private bool highRateCommandLoop;
     [ObservableProperty] private bool isValveIndexDetected;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ValveIndexForceStatus))]
@@ -219,7 +220,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
                 ? new DriverFlightRuntime()
                 : new MonadoFlightRuntime(libraryPath, CreateValveIndexSettings),
             new UiProgress(Update),
-            CreateSettings);
+            CreateSettings,
+            OperatingSystem.IsWindows() ? Platform.HighResolutionDelay.Wait : null);
         if (enableIndependentDrag && OperatingSystem.IsWindows()) controller.RefreshDragConnection();
         if (runtimeFactory is null && !OperatingSystem.IsWindows() && File.Exists(libraryPath))
         {
@@ -245,7 +247,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             nameof(InfiniteDragSmoothSeconds) or nameof(InfiniteTurnSmoothSeconds) or
             nameof(InfiniteTurnHeadSmoothSeconds) or nameof(InfiniteWalkingBoostMultiplier) or
             nameof(ValveIndexPositionDeadZone) or nameof(ValveIndexForceThreshold) or
-            nameof(BrakeRampSeconds)))
+            nameof(BrakeRampSeconds) or nameof(HighRateCommandLoop)))
             return;
 
         settingsStore.Save(CreateSettings());
@@ -285,6 +287,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         InfiniteWalkingBoostMultiplier = Math.Round(root.InfiniteWalking.TurnMovementBoostMultiplier, 6);
         ValveIndexPositionDeadZone = Math.Round(root.ValveIndex.PositionDeadZone, 6);
         ValveIndexForceThreshold = Math.Round(root.ValveIndex.ForceThreshold, 6);
+        HighRateCommandLoop = root.HighRateCommandLoop;
     }
 
     private void ResetToDefaults(Action<FlightMotionSettings> apply)
@@ -321,6 +324,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand] private void ResetValveIndexPositionDeadZone() => ValveIndexPositionDeadZone = ValveIndexInputSettings.Default.PositionDeadZone;
     [RelayCommand] private void ResetValveIndexForceThreshold() => ValveIndexForceThreshold = Math.Round(ValveIndexInputSettings.Default.ForceThreshold, 6);
     [RelayCommand] private void ResetMode() => Mode = FlightMode.InfiniteWalking;
+    [RelayCommand] private void ResetHighRateCommandLoop() => HighRateCommandLoop = FlugelKranzSettings.Default.HighRateCommandLoop;
     public bool SupportsSteamVrBindings => OperatingSystem.IsWindows();
     [RelayCommand] private void OpenSteamVrBindings() => controller.OpenBindings();
 
@@ -448,7 +452,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             TurnHeadSmoothSeconds = (float)InfiniteTurnHeadSmoothSeconds,
             TurnMovementBoostMultiplier = (float)InfiniteWalkingBoostMultiplier
         },
-        ValveIndex = CreateValveIndexSettings()
+        ValveIndex = CreateValveIndexSettings(),
+        HighRateCommandLoop = HighRateCommandLoop
     };
 
     private ValveIndexInputSettings CreateValveIndexSettings() => new()

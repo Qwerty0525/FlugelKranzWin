@@ -49,8 +49,23 @@ public sealed record FlightStatus(
 public sealed class FlightController(
     Func<IFlightRuntime> createRuntime,
     IProgress<FlightStatus> progress,
-    Func<FlugelKranzSettings>? getSettings = null) : IAsyncDisposable
+    Func<FlugelKranzSettings>? getSettings = null,
+    Func<TimeSpan, CancellationToken, Task>? highResolutionDelay = null) : IAsyncDisposable
 {
+    /// <summary>Loop wait with <see cref="FlugelKranzSettings.HighRateCommandLoop"/> off (about 15.6 ms on Windows).</summary>
+    public const int LegacyIntervalMilliseconds = 10;
+    /// <summary>Loop wait with <see cref="FlugelKranzSettings.HighRateCommandLoop"/> on.</summary>
+    public const double HighRateIntervalMilliseconds = 3;
+    /// <summary>How often the loop reports status to the UI (was every 10th iteration at about 15.6 ms).</summary>
+    internal static readonly TimeSpan StatusReportInterval = TimeSpan.FromMilliseconds(150);
+
+    /// <summary>The wait after one loop iteration. Read every iteration, so the option switches live.</summary>
+    internal static Task WaitForNextTick(bool highRate, Func<TimeSpan, CancellationToken, Task>? highResolutionDelay,
+        CancellationToken token) =>
+        highRate
+            ? (highResolutionDelay ?? Task.Delay)(TimeSpan.FromMilliseconds(HighRateIntervalMilliseconds), token)
+            : Task.Delay(LegacyIntervalMilliseconds, token);
+
     private readonly object gate = new();
     private readonly CancellationTokenSource shutdown = new();
     private Task? worker;
@@ -123,7 +138,7 @@ public sealed class FlightController(
             float dpadHoldSeconds = 0;
             bool dpadHoldTriggered = false;
             RigidPose? previousReferenceSpaceOffset = null;
-            int tick = 0;
+            long lastStatusTimestamp = 0;
             while (!shutdown.IsCancellationRequested)
             {
                 lock (gate)
@@ -138,6 +153,7 @@ public sealed class FlightController(
                 float elapsedSeconds = (float)Stopwatch.GetElapsedTime(previousTimestamp, timestamp).TotalSeconds;
                 previousTimestamp = timestamp;
                 var settings = (getSettings?.Invoke() ?? FlugelKranzSettings.Default).Normalized();
+                freeFlight.FixedVelocityWindow = settings.HighRateCommandLoop;
                 if (inputModeOverride is { } requested && settings.Mode == requested)
                     inputModeOverride = null;
                 FlightMode selectedMode = inputModeOverride ?? settings.Mode;
@@ -310,8 +326,11 @@ public sealed class FlightController(
                         }
                         else freeFlight.Release();
                     }
-                    if (tick++ % 10 == 0)
+                    // Time-based, so the high-rate loop does not report to the UI five times as often.
+                    if (lastStatusTimestamp == 0 ||
+                        Stopwatch.GetElapsedTime(lastStatusTimestamp, timestamp) >= StatusReportInterval)
                     {
+                        lastStatusTimestamp = timestamp;
                         bool transitioning = modeTransition is not null || spaceResetTransition is not null;
                         bool dragging = transitioning ? false
                             : selectedMode == FlightMode.FreeFlight
@@ -354,7 +373,7 @@ public sealed class FlightController(
                             (runtime as IFlightInputDiagnostics)?.InputDiagnostics));
                     }
                 }
-                await Task.Delay(10, shutdown.Token).ConfigureAwait(false);
+                await WaitForNextTick(settings.HighRateCommandLoop, highResolutionDelay, shutdown.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }

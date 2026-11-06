@@ -41,6 +41,19 @@ public sealed class FreeFlightManipulator
     private Vector3 angularInertia, turnVelocity;
     private RigidPose previousTurnTarget;
     private float linearExemptionSeconds, angularExemptionSeconds;
+    /// <summary>The loop period release velocities and the inertia stop check were tuned at: Task.Delay(10) on Windows.</summary>
+    internal const float ReferenceTickSeconds = 1f / 64;
+    /// <summary>
+    /// For a loop much faster than <see cref="ReferenceTickSeconds"/>: measure the drag and turn
+    /// release velocities over the last reference period instead of one tick (one tick of a few
+    /// milliseconds is mostly sample noise), and apply the inertia stop check to the displacement
+    /// over that period, so a throw and the end of a glide feel as they did at the old rate.
+    /// Decay, smoothing and integration already depend on elapsed time only.
+    /// </summary>
+    public bool FixedVelocityWindow { get; set; }
+    private double windowClock;
+    private readonly MotionWindow<Vector3> dragWindow = new();
+    private readonly MotionWindow<Quaternion> turnWindow = new();
     public bool IsDragging => dragHands != 0;
     public bool IsTurning => turnHands != 0;
     public bool IsHeadPiloting => pilot.Active;
@@ -82,6 +95,7 @@ public sealed class FreeFlightManipulator
         settings = settings.Normalized();
         float sampleSeconds = float.IsFinite(elapsedSeconds) ? MathF.Max(0, elapsedSeconds) : 0;
         float dt = Math.Min(sampleSeconds, MaximumStepSeconds);
+        windowClock += sampleSeconds;
         if (!frame.HeadTracked || !frame.Head.IsValid)
         {
             pilot.Release();
@@ -223,7 +237,7 @@ public sealed class FreeFlightManipulator
                 ref linearExemptionSeconds,
                 dt,
                 settings,
-                settings.InertiaStopDisplacementMetres);
+                settings.InertiaStopDisplacementMetres, StopCheckSeconds(dt));
         }
         if (IsTurning)
         {
@@ -242,7 +256,7 @@ public sealed class FreeFlightManipulator
                 ref angularExemptionSeconds,
                 dt,
                 settings,
-                settings.InertiaStopDisplacementMetres);
+                settings.InertiaStopDisplacementMetres, StopCheckSeconds(dt));
         }
         else if (dragHands == BothHands)
         {
@@ -258,7 +272,7 @@ public sealed class FreeFlightManipulator
                 ref angularExemptionSeconds,
                 dt,
                 settings,
-                settings.InertiaStopDisplacementMetres);
+                settings.InertiaStopDisplacementMetres, StopCheckSeconds(dt));
         }
 
         var target = GrabTarget(frame, settings);
@@ -305,6 +319,8 @@ public sealed class FreeFlightManipulator
         previousDragPosition = HandPosition(frame, dragHands);
         dragAnchorInRoot = targetOffset.Transform(previousDragPosition);
         dragVelocity = Vector3.Zero;
+        dragWindow.Clear();
+        dragWindow.Add(windowClock, previousDragPosition);
     }
 
     private void RebaseTurn(InputFrame frame)
@@ -317,6 +333,8 @@ public sealed class FreeFlightManipulator
             : Vector3.Zero;
         turnVelocity = Vector3.Zero;
         previousTurnTarget = targetOffset;
+        turnWindow.Clear();
+        turnWindow.Add(windowClock, targetOffset.Orientation);
     }
 
     private void FollowTarget(
@@ -380,18 +398,30 @@ public sealed class FreeFlightManipulator
         if (dragging && sampleSeconds > 0)
         {
             Vector3 current = HandPosition(frame, dragHands);
-            var controllerDelta = current - previousDragPosition;
-            dragVelocity = -Vector3.Transform(controllerDelta, dragReferenceOrientation) / sampleSeconds;
+            if (FixedVelocityWindow && dragWindow.TryGetReference(windowClock, ReferenceTickSeconds, out double since, out Vector3 start) &&
+                windowClock > since)
+                dragVelocity = -Vector3.Transform(current - start, dragReferenceOrientation) / (float)(windowClock - since);
+            else
+            {
+                var controllerDelta = current - previousDragPosition;
+                dragVelocity = -Vector3.Transform(controllerDelta, dragReferenceOrientation) / sampleSeconds;
+            }
             previousDragPosition = current;
+            dragWindow.Add(windowClock, current);
         }
 
         if (turning && sampleSeconds > 0)
         {
-            turnVelocity = RotationVelocity(
-                previousTurnTarget.Orientation,
-                target.Orientation,
-                sampleSeconds);
+            if (FixedVelocityWindow && turnWindow.TryGetReference(windowClock, ReferenceTickSeconds, out double since, out Quaternion start) &&
+                windowClock > since)
+                turnVelocity = RotationVelocity(start, target.Orientation, (float)(windowClock - since));
+            else
+                turnVelocity = RotationVelocity(
+                    previousTurnTarget.Orientation,
+                    target.Orientation,
+                    sampleSeconds);
             previousTurnTarget = target;
+            turnWindow.Add(windowClock, target.Orientation);
         }
     }
 
@@ -399,9 +429,15 @@ public sealed class FreeFlightManipulator
     {
         if (sampleSeconds <= 0)
             return dragVelocity.Length();
+        if (FixedVelocityWindow && dragWindow.TryGetReference(windowClock, ReferenceTickSeconds, out double since, out Vector3 start) &&
+            windowClock > since)
+            return Vector3.Distance(HandPosition(frame, dragHands), start) / (float)(windowClock - since);
 
         return Vector3.Distance(HandPosition(frame, dragHands), previousDragPosition) / sampleSeconds;
     }
+
+    /// <summary>Time the inertia stop check measures displacement over.</summary>
+    private float StopCheckSeconds(float dt) => FixedVelocityWindow ? MathF.Max(dt, ReferenceTickSeconds) : dt;
 
     private static void ApplyGrabBrake(
         ref Vector3 velocity,
@@ -552,14 +588,14 @@ public sealed class FreeFlightManipulator
                 ref linearExemptionSeconds,
                 dt,
                 settings,
-                settings.InertiaStopDisplacementMetres);
+                settings.InertiaStopDisplacementMetres, StopCheckSeconds(dt));
         if (turn)
             ApplyDeceleration(
                 ref angularInertia,
                 ref angularExemptionSeconds,
                 dt,
                 settings,
-                settings.InertiaStopDisplacementMetres);
+                settings.InertiaStopDisplacementMetres, StopCheckSeconds(dt));
     }
 
     private void FinishDrag(RigidPose head, FlightMotionSettings settings)
@@ -635,7 +671,8 @@ public sealed class FreeFlightManipulator
         ref float exemptionSeconds,
         float elapsedSeconds,
         FlightMotionSettings settings,
-        float stopCutoff)
+        float stopCutoff,
+        float stopCheckSeconds)
     {
         if (velocity.LengthSquared() <= 0 || elapsedSeconds <= 0)
             return;
@@ -646,7 +683,7 @@ public sealed class FreeFlightManipulator
         float exponent = settings.InertiaDecelerationPerSecond *
             (regularSeconds + exemptedSeconds * (1 - settings.DecelerationExemptionStrength));
         velocity *= MathF.Exp(-exponent);
-        if (velocity.Length() * elapsedSeconds < stopCutoff)
+        if (velocity.Length() * stopCheckSeconds < stopCutoff)
             velocity = Vector3.Zero;
     }
 

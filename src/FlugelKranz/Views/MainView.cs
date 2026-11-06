@@ -266,8 +266,17 @@ public sealed class MainView(MainViewModel vm) : ViewBase<MainViewModel>(vm)
             Header(model.Strings, "settings.dragBrake.header"),
             Row(model, x => x.BrakeRampLabel, new Slider().Minimum(0).Maximum(1).TickFrequency(0.01)
                     .Value(model, x => x.BrakeRampSeconds),
-                ResetButton(model, x => x.ResetBrakeRampCommand))
+                ResetButton(model, x => x.ResetBrakeRampCommand)),
+            Divider(),
+            Header(model.Strings, "settings.commandLoop.header"),
+            Row(model.Strings, "settings.commandLoop.highRate",
+                new CheckBox { Name = "HighRateCommandLoop" }.IsChecked(model, x => x.HighRateCommandLoop),
+                ResetButton(model, x => x.ResetHighRateCommandLoopCommand)),
+            Note(model.Strings, "settings.commandLoop.note")
         );
+
+    private static TextBlock Note(UiStrings strings, string key) =>
+        Localize(strings, new TextBlock(), (t, s) => t.Text = s, key).TextWrapping(TextWrapping.Wrap).Opacity(0.75);
 
     private static Grid Row(UiStrings strings, string labelKey, Control editor, Button reset) =>
         Row(Localize(strings, new TextBlock(), (t, s) => t.Text = s, labelKey), editor, reset);

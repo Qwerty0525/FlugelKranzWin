@@ -76,6 +76,9 @@
 
     "settings.dragBrake.header": "ドラグブレーキ",
     "settings.dragBrake.ramp": "適用時間: {0:0.00} 秒",
+    "settings.commandLoop.header": "指令の送信間隔（試験的）",
+    "settings.commandLoop.highRate": "高頻度（約 3 ms）",
+    "settings.commandLoop.note": "オフ: 約 15.6 ms（従来どおり）。切り替えはすぐに反映され、SteamVR の再起動は不要です。オンでは、Drag を離したときの速度と慣性の停止判定を従来の間隔（約 15.6 ms）で測るため、投げ出しと慣性の移動距離はほぼ同じになります。",
 
     "status.off.initial": "オフ — オンにするとランタイムへ接続します。",
     "status.off.holding": "オフ — 現在の位置・姿勢を保持します。",
