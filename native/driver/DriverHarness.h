@@ -103,7 +103,7 @@ inline void install() {
 // The settings shipped in resources/settings/default.vrsettings.
 inline void shippedDefaults() {
     auto& settings=context().settings;
-    settings.bools={{"observeFrames",true},{"correctFramePose",true},{"timeBasedFramePose",true},{"driverAudit",true}};
+    settings.bools={{"observeFrames",true},{"correctFramePose",true},{"timeBasedFramePose",true},{"driverAudit",true},{"fallbackFramePose",false}};
     settings.strings={{"hmdAnchoredTrackingSystems",""},{"physicalPoseDrivers","driver_slimevr.dll,driver_rebocap.dll"}};
 }
 

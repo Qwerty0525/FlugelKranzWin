@@ -61,7 +61,7 @@ void harnessTests(const vr::DriverPose_t& tracker,uint32_t device) {
     // Settings: shipped defaults, a changed flag, and missing keys keeping the fallbacks.
     harness::shippedDefaults();
     loadSettings();
-    require(context.log.contains("FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1 driverAudit=1"));
+    require(context.log.contains("FlugelKranz flags: observeFrames=1 correctFramePose=1 timeBasedFramePose=1 driverAudit=1 fallbackFramePose=0"));
     require(std::strcmp(physicalPoseDrivers,"driver_slimevr.dll,driver_rebocap.dll")==0);
     context.settings.bools["timeBasedFramePose"]=false;
     context.log.clear();

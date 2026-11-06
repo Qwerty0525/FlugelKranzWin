@@ -150,6 +150,30 @@ public:
         }
         return {true,heldTransform,0,true};
     }
+    // For a layer that neither match() nor the time-based path could place. Of identity and
+    // every transform in the history, pick the one whose removal puts the layer nearest the
+    // physical head of the newest HMD update. The usual failure is a stale newest sample;
+    // then the newest transform is what vrserver holds and is exact. The search guards the
+    // other case: a layer rendered with an older transform (identity right after flight
+    // starts, say) keeps that transform instead of getting the newest one removed. An
+    // identity result means the layer is forwarded as it is, as without this fallback.
+    // found=false only when the history is empty.
+    FrameMatch fallback(const vr::HmdMatrix34_t& layer) const {
+        if(!count) return {};
+        for(const auto& row:layer.m) for(float value:row) if(!std::isfinite(value)) return {true,Pose{},-1,false};
+        const auto& newest=entries[(next+entries.size()-1)%entries.size()];
+        const auto head=removeTransform(matrix(physical(newest.output)),newest.transform);
+        FrameMatch best{true,Pose{},matrixError(layer,head),false};
+        const Pose* last=nullptr;
+        for(size_t i=0;i<count;i++) {
+            const auto& transform=entries[i].transform;
+            if(last && same(*last,transform)) continue;
+            last=&transform;
+            const double error=matrixError(removeTransform(layer,transform),head);
+            if(std::isfinite(error) && error<best.error) best={true,transform,error,false};
+        }
+        return best;
+    }
     FrameMatch match(double now,float prediction,const vr::HmdMatrix34_t& layer) const {
         FrameMatch best;
         if(!std::isfinite(prediction) || prediction<0 || prediction>0.1f) return best;

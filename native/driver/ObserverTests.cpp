@@ -102,7 +102,48 @@ int main() {
     require(std::memcmp(eyes,originalCopy,sizeof(eyes))==0);
     // Every layer above took a different path once, in this order: forwarded (correction
     // off), matched, missed, timed, identity bypass, held.
-    for(int path=0;path<PathCount;path++) require(audit.paths[path]==1);
-    require(audit.pathChanges==5 && audit.pathJumpMax>0);
-    std::puts("Observer forwards original layers and ignores unavailable/unsupported interfaces: passed");
+    for(int path=0;path<PathFallback;path++) require(audit.paths[path]==1);
+    require(audit.paths[PathFallback]==0 && audit.pathChanges==5 && audit.pathJumpMax>0);
+
+    // fallbackFramePose. A stale history defeats every path above; the layer was flown
+    // with the newest transform, so removing it gives the physical head.
+    fallbackFramePose=true;
+    frameHistory.clear();
+    const double staleNow=frameTimeMs();
+    for(int dt=400;dt>=200;dt-=10) frameHistory.add(staleNow-dt,output,transform,&head);
+    for(int i=0;i<2;i++) expectedCopy[i].mHmdPose=flight::removeTransform(eyes[i].mHmdPose,transform);
+    expectCopy=true;
+    observedSubmit(expectedSelf,eyes);
+    require(forwarded==9 && audit.paths[PathFallback]==1);
+    require(flight::matrixError(expectedCopy[0].mHmdPose,flight::matrix(flight::physical(head)))<1e-6);
+    // Guard: flight has just started, so the newest transform is not identity, but this
+    // layer was rendered before it (with identity). It is forwarded as it is.
+    frameHistory.clear();
+    vr::DriverPose_t still=head;still.vecVelocity[0]=0;
+    for(int dt=400;dt>210;dt-=10) frameHistory.add(staleNow-dt,still,flight::Pose{},&still);
+    frameHistory.add(staleNow-200,flight::apply(still,transform),transform,&still);
+    Layer unflown[2];std::memcpy(unflown,eyes,sizeof(eyes));
+    for(auto& eye:unflown) eye.mHmdPose=flight::matrix(flight::physical(still));
+    std::memcpy(expectedCopy,unflown,sizeof(unflown));
+    expectedEyes=unflown;expectCopy=false;
+    observedSubmit(expectedSelf,unflown);
+    require(forwarded==10 && audit.paths[PathFallback]==1 && audit.paths[PathMissed]==2);
+    expectedEyes=eyes;
+    // No history at all: the HMD's last committed transform.
+    frameHistory.clear();
+    {std::lock_guard<std::mutex> lock(appliedGate);lastApplied[0]=transform;}
+    std::memcpy(expectedCopy,eyes,sizeof(eyes));
+    for(int i=0;i<2;i++) expectedCopy[i].mHmdPose=flight::removeTransform(eyes[i].mHmdPose,transform);
+    expectCopy=true;
+    observedSubmit(expectedSelf,eyes);
+    require(forwarded==11 && audit.paths[PathFallback]==2);
+    require(std::memcmp(eyes,originalCopy,sizeof(eyes))==0);
+    // Without correctFramePose there is no fallback either.
+    correctFramePose=false;expectCopy=false;
+    std::memcpy(expectedCopy,eyes,sizeof(eyes));
+    observedSubmit(expectedSelf,eyes);
+    require(forwarded==12 && audit.paths[PathFallback]==2);
+    {std::lock_guard<std::mutex> lock(appliedGate);lastApplied[0]=flight::Pose{};}
+    fallbackFramePose=false;
+    std::puts("Observer forwards original layers and ignores unavailable/unsupported interfaces; fallback correction and its guard: passed");
 }

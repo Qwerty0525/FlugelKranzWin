@@ -101,5 +101,21 @@ int main() {
     check(!history.heldMatch(1900,0,badLayer).found,"held correction rejects malformed matrices");
     history.add(1910,oldOutput,old,&p);
     check(!history.heldMatch(1910,0,arbitraryLayer).found,"changing flight leaves held path immediately");
-    std::puts("Frame inverse, delayed commands, prediction, ambiguity and expiration: passed");
+
+    // fallback(): the transform whose removal lands the layer on the newest physical head.
+    history.clear();
+    check(!history.fallback(oldLayer).found,"fallback reports an empty history");
+    p=physicalPose();
+    history.add(1000,flight::apply(p,old),old,&p);
+    history.add(1010,flight::apply(p,latest),latest,&p);
+    auto latestLayer=flight::matrix(flight::physical(flight::apply(p,latest)));
+    auto picked=history.fallback(latestLayer);
+    check(picked.found && picked.transform.py==4,"fallback removes the newest transform from a layer flown with it");
+    picked=history.fallback(oldLayer);
+    check(picked.found && picked.transform.px==3,"fallback keeps an older transform the layer was rendered with");
+    picked=history.fallback(flight::matrix(flight::physical(p)));
+    check(picked.found && flight::isIdentity(picked.transform),"a layer rendered before flight started is left alone");
+    picked=history.fallback(invalid);
+    check(picked.found && flight::isIdentity(picked.transform),"a nonfinite layer is left alone");
+    std::puts("Frame inverse, delayed commands, prediction, ambiguity and expiration, fallback: passed");
 }

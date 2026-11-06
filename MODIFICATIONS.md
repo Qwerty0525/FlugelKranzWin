@@ -178,6 +178,38 @@ and the one-time Direct Mode report; `observer_tests` checks that each
 correction path is counted. All four native test suites pass. Not run on
 hardware.
 
+## 2026-11-06 — Fallback render correction (opt-in)
+
+Affected files: `native/driver/Driver.cpp`, `native/driver/FrameHistory.h`,
+`native/driver/resources/settings/default.vrsettings`,
+`native/driver/ObserverTests.cpp`, `native/driver/FrameTests.cpp`,
+`native/driver/README.md`.
+
+When no correction path can place a layer (the newest HMD sample is older
+than 50 ms, the prediction is out of range, and so on), the layer is
+forwarded with the flown HMD pose, which on Quest 2 / Virtual Desktop has
+shown up as black borders. With the new flag `fallbackFramePose=true`
+(default `false`), such a layer instead has a transform removed: of
+identity and every transform in the HMD history, the one whose removal
+lands the layer nearest the newest physical head. Identity means the layer
+is forwarded unchanged, so a layer rendered before flight started is left
+alone. With an empty history the HMD's last committed transform is used.
+It requires `correctFramePose=true`.
+
+In the common failure (a stale newest sample) the newest transform is the
+one vrserver holds, so the result is close to exact. When several commands
+fall between the render pose and the newest HMD update (low frame rate,
+streaming delay), the choice can be wrong by a few command steps if head
+motion is larger than one flight step.
+
+### Testing
+
+`frame_tests` covers the selection (newest, older, identity, non-finite,
+empty). `observer_tests` covers a stale history, the identity guard, the
+empty-history case through `lastApplied`, and that nothing changes
+without `correctFramePose`. All four native test suites pass. Not run on
+hardware; whether it removes the black borders is not known yet.
+
 ## 2026-10-25 — Redistribution notices
 
 Affected files: `src/FlugelKranz/FlugelKranz.csproj`, `THIRD-PARTY-NOTICES.txt`,

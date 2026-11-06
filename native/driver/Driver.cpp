@@ -44,6 +44,9 @@ std::atomic<uint64_t> submittedLayers{0},missedLayers{0},heldLayers{0};
 bool observeFrames=false;
 bool correctFramePose=false;
 bool timeBasedFramePose=false;
+// Correct a layer no path could place with the history transform (or the HMD's last
+// committed one) instead of forwarding it flown. Needs correctFramePose.
+bool fallbackFramePose=false;
 flight::FrameHistory frameHistory;
 std::mutex historyGate;
 double frameTimeMs() {
@@ -88,7 +91,7 @@ std::mutex callSiteGate; // only while classifying a call site seen for the firs
 // it is held. RunFrame copies and resets them after releasing `gate`, then formats and
 // logs outside every lock.
 bool driverAudit=false;
-enum SubmitPath {PathForwarded,PathBypass,PathHeld,PathTimed,PathMatched,PathMissed,PathCount};
+enum SubmitPath {PathForwarded,PathBypass,PathHeld,PathTimed,PathMatched,PathMissed,PathFallback,PathCount};
 struct Audit {
     uint64_t refreshMiss=0,sampleMiss=0,ownerRevoked=0,commandInvalid=0;
     uint64_t commandChanges=0;
@@ -236,6 +239,8 @@ void observedSubmit(void* self,const Layer(&eyes)[2]) {
     flight::PhysicalFrame physicalLeft,physicalRight;
     Layer corrected[2];
     bool identityBypass=false,usedTimed=false;
+    flight::FrameMatch fallback;
+    bool fallbackFromApplied=false;
     if(correctFramePose) {
         std::lock_guard<std::mutex> lock(historyGate);
         auto frameNow=frameTimeMs();
@@ -260,7 +265,18 @@ void observedSubmit(void* self,const Layer(&eyes)[2]) {
         auto right=frameHistory.match(frameNow,eyes[1].flHmdPosePredictionTimeInSecondsFromNow,eyes[1].mHmdPose);
         if(!right.found || (match.found && flight::matrixError(flight::matrix(match.transform),flight::matrix(right.transform))>0.04)) match.found=false;
         }
+        if(fallbackFramePose && !identityBypass && !match.found) {
+            fallback=frameHistory.fallback(pose);
+            fallbackFromApplied=!fallback.found;
+        }
     }
+    if(fallbackFromApplied) {
+        // No history (none yet, or the HMD pose went invalid): the transform last committed
+        // for the HMD. historyGate is released first; no path takes the two the other way.
+        std::lock_guard<std::mutex> lock(appliedGate);
+        fallback={true,lastApplied[0],-1,false};
+    }
+    const bool usedFallback=fallback.found && !flight::isIdentity(fallback.transform);
     if(match.found) {
         std::memcpy(corrected,eyes,sizeof(corrected));
         if(usedTimed) {
@@ -268,14 +284,18 @@ void observedSubmit(void* self,const Layer(&eyes)[2]) {
             corrected[1].mHmdPose=flight::matrix(physicalRight.pose);
         } else for(auto& eye:corrected) eye.mHmdPose=flight::removeTransform(eye.mHmdPose,match.transform);
         submitOriginal(self,corrected);
+    } else if(usedFallback) {
+        std::memcpy(corrected,eyes,sizeof(corrected));
+        for(auto& eye:corrected) eye.mHmdPose=flight::removeTransform(eye.mHmdPose,fallback.transform);
+        submitOriginal(self,corrected);
     } else submitOriginal(self,eyes);
     submittedLayers.fetch_add(1);
     if(correctFramePose && !identityBypass && !match.found) missedLayers.fetch_add(1);
     if(match.held && match.found) heldLayers.fetch_add(1);
     if(driverAudit) {
-        const SubmitPath path=!correctFramePose?PathForwarded:identityBypass?PathBypass:!match.found?PathMissed
+        const SubmitPath path=!correctFramePose?PathForwarded:identityBypass?PathBypass:!match.found?(usedFallback?PathFallback:PathMissed)
             :match.held?PathHeld:usedTimed?PathTimed:PathMatched;
-        const auto& submitted=match.found?corrected[0].mHmdPose:eyes[0].mHmdPose;
+        const auto& submitted=match.found || usedFallback?corrected[0].mHmdPose:eyes[0].mHmdPose;
         const double submitNow=frameTimeMs(),head=lastHeadUpdate.load();
         std::lock_guard<std::mutex> lock(auditGate);
         audit.paths[path]++;
@@ -483,9 +503,10 @@ void loadSettings() {
     std::snprintf(message,sizeof(message),"FlugelKranz: physical raw poses for drivers: '%s'",physicalPoseDrivers);
     vr::VRDriverLog()->Log(message);
     driverAudit=readFlag("driverAudit",false);
+    fallbackFramePose=readFlag("fallbackFramePose",false);
     // One line with every behaviour flag, so a log always says which paths were live.
-    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d driverAudit=%d",
-        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0,driverAudit?1:0);
+    std::snprintf(message,sizeof(message),"FlugelKranz flags: observeFrames=%d correctFramePose=%d timeBasedFramePose=%d driverAudit=%d fallbackFramePose=%d",
+        observeFrames?1:0,correctFramePose?1:0,timeBasedFramePose?1:0,driverAudit?1:0,fallbackFramePose?1:0);
     vr::VRDriverLog()->Log(message);
 }
 
@@ -520,7 +541,7 @@ void auditTick(double now) {
         "command: changes=%llu intervalMs[<5,<10,<15,<20,<30,<50,<100,>=100]=[%llu %llu %llu %llu %llu %llu %llu %llu] "
         "virtualStepM: n=%llu max=%.4f mean=%.4f "
         "readback: calls=%llu window=%llu pending=%llu previous=%llu ambiguous=%llu residualMaxM=%.4f "
-        "submit[forwarded,bypass,held,timed,matched,missed]=[%llu %llu %llu %llu %llu %llu] pathChanges=%llu jumpMaxM=%.4f jumpMaxDeg=%.3f "
+        "submit[forwarded,bypass,held,timed,matched,missed,fallback]=[%llu %llu %llu %llu %llu %llu %llu] pathChanges=%llu jumpMaxM=%.4f jumpMaxDeg=%.3f "
         "headAgeMs: n=%llu max=%.2f mean=%.2f",
         now,
         static_cast<unsigned long long>(a.refreshMiss),static_cast<unsigned long long>(a.sampleMiss),
@@ -537,6 +558,7 @@ void auditTick(double now) {
         static_cast<unsigned long long>(a.paths[PathForwarded]),static_cast<unsigned long long>(a.paths[PathBypass]),
         static_cast<unsigned long long>(a.paths[PathHeld]),static_cast<unsigned long long>(a.paths[PathTimed]),
         static_cast<unsigned long long>(a.paths[PathMatched]),static_cast<unsigned long long>(a.paths[PathMissed]),
+        static_cast<unsigned long long>(a.paths[PathFallback]),
         static_cast<unsigned long long>(a.pathChanges),a.pathJumpMax,a.pathJumpDegMax,
         static_cast<unsigned long long>(a.headAges),a.headAgeMax,a.headAges?a.headAgeSum/a.headAges:0.0);
     vr::VRDriverLog()->Log(message);
