@@ -18,6 +18,11 @@
   <ItemGroup>
     <None Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../WINDOWS.md" Link="WINDOWS.md" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../WINDOWS.en.md" Link="WINDOWS.en.md" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../WINDOWS.ko.md" Link="WINDOWS.ko.md" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../README.md" Link="README.md" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../README.en.md" Link="README.en.md" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../README.ko.md" Link="README.ko.md" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../MODIFICATIONS.md" Link="MODIFICATIONS.md" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../THIRD-PARTY-NOTICES-dotnet.txt" Link="THIRD-PARTY-NOTICES-dotnet.txt" CopyToPublishDirectory="PreserveNewest" />
