@@ -15,7 +15,7 @@ You need Windows x64, SteamVR, a supported HMD and controllers, and the bundled 
 
 To use it without building, extract the zip from [Releases](https://github.com/Qwerty0525/FlugelKranzWin/releases) and register the driver as described in [Install from the release zip](WINDOWS.en.md#install-from-the-release-zip).
 
-On Quest 2 + Touch / Virtual Desktop, with time-based correction enabled, a report from real hardware says that black edges, darkening and jitter during head movement, both while a rotation is held and while rotating, have improved (2026-09-13). A wobble in the view that was reported afterwards has also been reported as resolved on real hardware, after a fix that passes identity transforms through unchanged and keeps the original frame prediction while a rotation is held (2026-09-14). The settings and the scope of testing are described in [WINDOWS.en.md](WINDOWS.en.md#verification).
+On Quest 2 + Touch / Virtual Desktop with time-based correction enabled, a report from real hardware says that black edges, darkening and jitter during head movement have improved, both while a rotation is held and while rotating (2026-09-13). A wobble in the view reported after that was also reported gone on real hardware, after a fix that passes identity transforms through unchanged and keeps the original frame prediction while a rotation is held (2026-09-14). The settings and the scope of testing are described in [WINDOWS.en.md](WINDOWS.en.md#verification).
 
 ## First steps
 
@@ -57,7 +57,7 @@ The two-hand mode switch takes priority over the one-hand reset. You can also us
 
 ### Head pilot prototype (Windows / F mode)
 
-In F mode, head pilot and enhanced stick thrust are enabled by default. You can change this with the "Free flight — Head pilot (experimental)" (「自由飛行 — 頭部操縦（試作）」) setting. A saved enabled / disabled setting is kept. You need to enable the SteamVR developer setting **Experimental overlay input overrides**. If it is disabled, the app shows the reason and ends the connection.
+In F mode, head pilot and a stronger stick thrust are enabled by default. You can change this with the "Free flight — Head pilot (experimental)" (「自由飛行 — 頭部操縦（試作）」) setting. A saved enabled / disabled setting is kept. You need to enable the SteamVR developer setting **Experimental overlay input overrides**. If it is disabled, the app shows the reason and ends the connection.
 
 - **Short-press X / A** on Touch to turn head pilot ON / OFF. While the prototype is in use, it replaces the original controller Turn. It toggles the moment you release the button after a short press, and the physical direction of your head at the moment it turns ON becomes neutral. There is no wait for double-click detection.
 - While it is ON, tilting your head away from neutral rotates you continuously: looking down pitches you forward, looking up pitches you backward, tilting your head left or right rolls, and turning left or right turns you. Returning to neutral brings the rotation command to zero.

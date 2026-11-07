@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -File ./install-driver.ps1
 ./FlugelKranz.exe
 ```
 
-`-ExecutionPolicy Bypass` allows the script for this one run only and does not change any Windows setting. Where scripts are allowed to run, `./install-driver.ps1` does the same. If Windows SmartScreen warns you when you open `FlugelKranz.exe` from File Explorer, choose "More info" → "Run anyway". Head pilot in F mode (enabled by default) needs the SteamVR developer setting **Experimental overlay input overrides** (see the [README](README.en.md#head-pilot-prototype-windows--f-mode)).
+`-ExecutionPolicy Bypass` allows the script for this one run only and does not change any Windows setting. Where scripts are allowed to run, `./install-driver.ps1` does the same. If Windows SmartScreen warns you when you open `FlugelKranz.exe` from File Explorer, choose "More info" → "Run anyway". Head pilot in F mode (enabled by default) needs the SteamVR developer setting `Experimental overlay input overrides` (see the [README](README.en.md#head-pilot-prototype-windows--f-mode)).
 
 To update, quit FlugelKranz and SteamVR, then copy the contents of the new `FlugelKranzWin` folder over your current folder (the existing registration keeps working). If you edited `default.vrsettings`, it is replaced, so check it again. To move to a different folder, move the registration as described in [Updating and unregistering](#updating-and-unregistering).
 
@@ -73,7 +73,7 @@ The registration script uses SteamVR's `vrpathreg`. It does not quit or restart 
 
 ## Frame pose correction settings
 
-Set `driver/flugelkranz/resources/settings/default.vrsettings` in the deployed folder before starting SteamVR. The configuration with which black edges and darkening were confirmed to improve on real hardware is as follows.
+Set `driver/flugelkranz/resources/settings/default.vrsettings` in the deployed folder before starting SteamVR. This configuration was confirmed on real hardware to improve black edges and darkening:
 
 ```json
 {
@@ -86,7 +86,7 @@ Set `driver/flugelkranz/resources/settings/default.vrsettings` in the deployed f
 }
 ```
 
-**In the source and in the distribution, the defaults have all three of the boolean settings above, tested on real hardware, set to true.** The build script copies the settings from the source to the deployed folder, so check them again after rebuilding or updating. If SteamVR has a user setting with the same name, that one takes precedence.
+**In the source and in the distribution, all three boolean settings above, as tested on real hardware, default to true.** The build script copies the settings from the source to the deployed folder, so check them again after rebuilding or updating. If SteamVR has a user setting with the same name, that one takes precedence.
 
 `correctFramePose` enables correction of the HMD pose passed to rendering and streaming. `timeBasedFramePose` is a method that interpolates / predicts the physical pose for the frame's predicted time, and is used together with `correctFramePose=true`. `observeFrames` enables the observation hook. If both `observeFrames` and `correctFramePose` are false, no frame hook is added.
 
@@ -129,7 +129,7 @@ Settings are saved to `%USERPROFILE%/.config/FlugelKranz/config.json`. You can s
 On 2026-09-13, this was tested on Quest 2 + Touch / Virtual Desktop / SteamVR with the time-based correction of `5b41cab` enabled.
 
 - Confirmed reading the physical poses of the HMD and both Touch controllers, and the flight transform being applied on the SteamVR side.
-- Reported: the earlier black edges, darkening and jitter improved, both for head movement while a rotation is held and for head movement during rotation input.
+- A report says the earlier black edges, darkening and jitter improved, both for head movement while a rotation is held and for head movement during rotation input.
 - For the wobble in the view reported afterwards, `9932816` added pass-through for identity transforms, and `c743e66` keeps the original frame prediction while a transform is held. On 2026-09-14 the user confirmed that the wobble was gone.
 
 SteamVR MirrorView sometimes looked normal even when it did not match what was shown in the HMD. When testing, check what you see in the HMD as well. Per-game testing, systematic testing of all axes, other HMDs, FBT, coexistence with other pose-hook tools, and long sessions have not been tested.
@@ -159,7 +159,7 @@ cmake --build artifacts/driver-build --config Release
 ctest --test-dir artifacts/driver-build -C Release --output-on-failure
 ```
 
-The C# tests cover input, coordinate composition, inertia, mode switching, tracking loss, restoring, settings and the UI. The native tests cover pose and velocity transforms, pass-through for identity transforms, preservation of layer information, and interpolation / prediction of frame poses. Keep passing automated tests separate from display quality on real hardware.
+The C# tests cover input, coordinate composition, inertia, mode switching, tracking loss, restoring, settings and the UI. The native tests cover pose and velocity transforms, pass-through for identity transforms, preservation of layer information, and interpolation / prediction of frame poses. Treat passing automated tests and display quality on real hardware as separate things.
 
 The Windows UI is handled by `UseWin32()`, input and connection by `FlugelKranz.OpenVR`, control calculations by `FlugelKranz.Core`, and pose application and frame correction by `native/driver`. The OpenXR / Monado projects inherited from upstream remain for dependencies and reference, but Linux installation and development are not covered here.
 

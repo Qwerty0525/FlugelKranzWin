@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -File ./install-driver.ps1
 ./FlugelKranz.exe
 ```
 
-`-ExecutionPolicy Bypass`는 이번 한 번의 실행에만 스크립트를 허용하며, Windows 설정은 바꾸지 않습니다. 스크립트를 실행할 수 있는 환경이라면 `./install-driver.ps1`로 실행해도 같습니다. 파일 탐색기에서 `FlugelKranz.exe`를 열 때 Windows SmartScreen 경고가 나오면 "추가 정보" → "실행"을 고릅니다. F 모드의 머리 조종(기본 켜짐)에는 SteamVR 개발자 설정 **Experimental overlay input overrides**가 필요합니다([README](README.ko.md#머리-조종-시험-기능windows--f-모드) 참고).
+`-ExecutionPolicy Bypass`는 이번 한 번의 실행에만 스크립트를 허용하며, Windows 설정은 바꾸지 않습니다. 스크립트를 실행할 수 있는 환경이라면 `./install-driver.ps1`로 실행해도 같습니다. 파일 탐색기에서 `FlugelKranz.exe`를 열 때 Windows SmartScreen 경고가 나오면 "추가 정보" → "실행"을 고릅니다. F 모드의 머리 조종(기본 켜짐)에는 SteamVR 개발자 설정 `Experimental overlay input overrides`가 필요합니다([README](README.ko.md#머리-조종-시험-기능windows--f-모드) 참고).
 
 업데이트할 때는 FlugelKranz와 SteamVR을 종료하고, 새 `FlugelKranzWin` 폴더의 내용을 지금 쓰는 폴더에 덮어씁니다(기존 등록이 그대로 쓰입니다). `default.vrsettings`를 고쳤다면 새 파일로 바뀌므로 다시 확인해 주세요. 다른 폴더로 옮길 때는 [업데이트와 등록 해제](#업데이트와-등록-해제)대로 등록을 옮깁니다.
 

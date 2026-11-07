@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -File ./install-driver.ps1
 ./FlugelKranz.exe
 ```
 
-`-ExecutionPolicy Bypass` はこの 1 回の実行に限ってスクリプトを許可するもので、Windows の設定は変更しません。スクリプトを実行できる環境では `./install-driver.ps1` でも同じです。エクスプローラーから `FlugelKranz.exe` を開いて Windows SmartScreen の警告が出た場合は、「詳細情報」→「実行」を選びます。F モードの頭部操縦（既定で有効）には SteamVR の開発者設定 **Experimental overlay input overrides** が必要です（[README](README.md#頭部操縦の試作windows--f-モード)）。
+`-ExecutionPolicy Bypass` はこの 1 回の実行に限ってスクリプトを許可するもので、Windows の設定は変更しません。スクリプトを実行できる環境では `./install-driver.ps1` でも同じです。エクスプローラーから `FlugelKranz.exe` を開いて Windows SmartScreen の警告が出た場合は、「詳細情報」→「実行」を選びます。F モードの頭部操縦（既定で有効）には SteamVR の開発者設定 `Experimental overlay input overrides` が必要です（[README](README.md#頭部操縦の試作windows--f-モード)）。
 
 更新するときは FlugelKranz と SteamVR を終了し、新しい `FlugelKranzWin` フォルダーの中身を今のフォルダーへ上書きコピーします（登録はそのまま使えます）。`default.vrsettings` を編集していた場合は置き換わるため、もう一度確認してください。別のフォルダーへ移す場合は[更新と登録解除](#更新と登録解除)のとおり登録を移します。
 
